@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>QaryxOS</title>
+<style>
+  :root {
+    --bg: #0a0a0a; --surface: #1c1c1c; --surface2: #2a2a2a;
+    --accent: #6478dc; --text: #f0f0f0; --muted: #888;
+    --green: #4caf50; --red: #f44336;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: system-ui, sans-serif;
+         min-height: 100dvh; }
+  header { background: var(--surface); padding: 14px 20px; display: flex;
+           align-items: center; gap: 12px; border-bottom: 1px solid #333; }
+  header h1 { font-size: 1.2rem; color: var(--accent); }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); }
+  .dot.ok { background: var(--green); }
+  #version { font-size: .75rem; color: var(--muted); margin-left: auto; }
+
+  .tabs { display: flex; background: var(--surface); border-bottom: 1px solid #333; }
+  .tab { flex: 1; padding: 12px; text-align: center; cursor: pointer;
+         color: var(--muted); font-size: .9rem; border-bottom: 2px solid transparent; }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  .page { display: none; padding: 16px; max-width: 480px; margin: 0 auto; }
+  .page.active { display: block; }
+
+  /* Remote */
+  .dpad { display: grid; grid-template-columns: repeat(3, 64px);
+          grid-template-rows: repeat(3, 64px); gap: 6px;
+          justify-content: center; margin: 24px auto; }
+  .btn { background: var(--surface); border: 1px solid #333; border-radius: 10px;
+         color: var(--text); cursor: pointer; font-size: 1.1rem;
+         display: flex; align-items: center; justify-content: center;
+         width: 64px; height: 64px; user-select: none; transition: background .1s; }
+  .btn:active { background: var(--accent); }
+  .btn.center { background: var(--accent); font-weight: bold; }
+  .btn.empty { visibility: hidden; }
+  .controls { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 8px; }
+  .btn-wide { background: var(--surface2); border: 1px solid #444; border-radius: 8px;
+              color: var(--text); cursor: pointer; padding: 10px 18px; font-size: .9rem;
+              display: flex; align-items: center; gap: 6px; user-select: none; }
+  .btn-wide:active { background: var(--accent); }
+  #status-bar { background: var(--surface); border-radius: 8px; padding: 10px 14px;
+                font-size: .8rem; color: var(--muted); margin-bottom: 16px;
+                display: flex; justify-content: space-between; align-items: center; }
+  progress { width: 100%; height: 4px; margin-top: 6px; accent-color: var(--accent); }
+
+  /* URL play */
+  .url-form { display: flex; gap: 8px; margin-bottom: 16px; }
+  input[type=text] { flex: 1; background: var(--surface2); border: 1px solid #444;
+                     border-radius: 8px; color: var(--text); padding: 10px 12px; font-size: .9rem; }
+  input[type=text]:focus { outline: none; border-color: var(--accent); }
+  .btn-play { background: var(--accent); border: none; border-radius: 8px;
+              color: #fff; cursor: pointer; padding: 10px 18px; font-weight: bold; }
+
+  /* History */
+  .history-list { display: flex; flex-direction: column; gap: 8px; }
+  .history-item { background: var(--surface); border-radius: 8px; padding: 12px;
+                  display: flex; justify-content: space-between; align-items: center;
+                  cursor: pointer; border: 1px solid transparent; }
+  .history-item:hover { border-color: var(--accent); }
+  .history-item .title { font-size: .9rem; white-space: nowrap; overflow: hidden;
+                         text-overflow: ellipsis; max-width: 240px; }
+  .history-item .meta { font-size: .75rem; color: var(--muted); margin-top: 3px; }
+  .badge { font-size: .7rem; background: var(--surface2); border-radius: 4px;
+           padding: 2px 6px; color: var(--muted); }
+
+  /* IPTV */
+  .list { display: flex; flex-direction: column; gap: 6px; }
+  .list-item { background: var(--surface); border-radius: 8px; padding: 10px 14px;
+               cursor: pointer; border: 1px solid transparent; }
+  .list-item:hover, .list-item.sel { border-color: var(--accent); }
+  .list-item .name { font-size: .9rem; }
+  .list-item .sub { font-size: .75rem; color: var(--muted); margin-top: 2px; }
+  .section-title { font-size: .8rem; color: var(--muted); text-transform: uppercase;
+                   letter-spacing: .05em; margin: 14px 0 8px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="dot" id="dot"></div>
+  <h1>QaryxOS</h1>
+  <span id="version"></span>
+</header>
+
+<div class="tabs">
+  <div class="tab active" onclick="tab('remote')">Remote</div>
+  <div class="tab" onclick="tab('play')">Play URL</div>
+  <div class="tab" onclick="tab('history')">History</div>
+  <div class="tab" onclick="tab('iptv')">IPTV</div>
+</div>
+
+<!-- ── Remote ── -->
+<div class="page active" id="page-remote">
+  <div id="status-bar">
+    <div>
+      <span id="st-state">idle</span>
+      <span id="st-title" style="margin-left:8px;color:var(--text)"></span>
+    </div>
+    <span id="st-time"></span>
+  </div>
+  <progress id="st-progress" value="0" max="100"></progress>
+  <br>
+  <div class="dpad">
+    <div class="btn empty"></div>
+    <div class="btn" onclick="key('up')">▲</div>
+    <div class="btn empty"></div>
+    <div class="btn" onclick="key('left')">◀</div>
+    <div class="btn center" onclick="key('ok')">OK</div>
+    <div class="btn" onclick="key('right')">▶</div>
+    <div class="btn empty"></div>
+    <div class="btn" onclick="key('down')">▼</div>
+    <div class="btn empty"></div>
+  </div>
+  <div class="controls">
+    <button class="btn-wide" onclick="api('POST','pause')">⏯ Play/Pause</button>
+    <button class="btn-wide" onclick="seek(-30)">⏪ −30s</button>
+    <button class="btn-wide" onclick="seek(30)">+30s ⏩</button>
+    <button class="btn-wide" onclick="api('POST','stop')">⏹ Stop</button>
+    <button class="btn-wide" onclick="vol(-10)">🔉</button>
+    <button class="btn-wide" onclick="vol(10)">🔊</button>
+    <button class="btn-wide" onclick="key('back')">↩ Back</button>
+    <button class="btn-wide" onclick="key('home')">🏠 Home</button>
+  </div>
+</div>
+
+<!-- ── Play URL ── -->
+<div class="page" id="page-play">
+  <p style="color:var(--muted);font-size:.85rem;margin-bottom:12px">
+    YouTube, прямые HTTP/HLS ссылки, TorrServer — всё поддерживается.
+  </p>
+  <div class="url-form">
+    <input type="text" id="url-input" placeholder="https://youtu.be/... или http://stream.m3u8">
+    <button class="btn-play" onclick="playUrl()">▶ Play</button>
+  </div>
+  <div id="url-msg" style="font-size:.8rem;color:var(--muted)"></div>
+</div>
+
+<!-- ── History ── -->
+<div class="page" id="page-history">
+  <div class="section-title">Недавнее</div>
+  <div class="history-list" id="history-list">
+    <div style="color:var(--muted);font-size:.85rem">Загрузка...</div>
+  </div>
+</div>
+
+<!-- ── IPTV ── -->
+<div class="page" id="page-iptv">
+  <div class="section-title">Группы</div>
+  <div class="list" id="iptv-groups"></div>
+  <div class="section-title" style="margin-top:20px">Каналы</div>
+  <div class="list" id="iptv-channels">
+    <div style="color:var(--muted);font-size:.85rem">Выбери группу</div>
+  </div>
+</div>
+
+<script>
+const BASE = '';
+
+async function api(method, path, body) {
+  try {
+    const opts = { method, headers: {'Content-Type':'application/json'} };
+    if (body) opts.body = JSON.stringify(body);
+    const r = await fetch(BASE + '/' + path, opts);
+    return r.json();
+  } catch(e) { return null; }
+}
+
+function key(k)  { api('POST','ui/key',{key:k}); }
+function seek(s) { api('POST','seek',{seconds:s}); }
+
+async function vol(delta) {
+  const st = await api('GET','status');
+  if (st) api('POST','volume',{level: Math.max(0,Math.min(100,(st.volume||80)+delta))});
+}
+
+async function playUrl() {
+  const url = document.getElementById('url-input').value.trim();
+  if (!url) return;
+  const msg = document.getElementById('url-msg');
+  msg.textContent = 'Отправляем...';
+  const r = await api('POST','play',{url});
+  msg.textContent = r?.ok ? '✓ Воспроизводится' : '✗ Ошибка: ' + (r?.detail || 'нет ответа');
+}
+
+function tab(name) {
+  document.querySelectorAll('.tab').forEach((t,i) => t.classList.toggle('active', ['remote','play','history','iptv'][i]===name));
+  document.querySelectorAll('.page').forEach(p => p.classList.toggle('active', p.id==='page-'+name));
+  if (name==='history') loadHistory();
+  if (name==='iptv') loadIptvGroups();
+}
+
+// ── Status polling ────────────────────────────────────────────────────────
+function fmt(s) {
+  s = Math.floor(s||0);
+  return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;
+}
+async function pollStatus() {
+  const st = await api('GET','status');
+  if (!st) { document.getElementById('dot').className='dot'; return; }
+  document.getElementById('dot').className = 'dot ok';
+  document.getElementById('st-state').textContent = st.state;
+  document.getElementById('st-title').textContent = st.url ? decodeURIComponent(st.url.split('/').pop().split('?')[0]).slice(0,40) : '';
+  document.getElementById('st-time').textContent = st.duration>0 ? fmt(st.position)+' / '+fmt(st.duration) : '';
+  document.getElementById('st-progress').value = st.duration>0 ? (st.position/st.duration)*100 : 0;
+}
+async function pollHealth() {
+  const h = await api('GET','health');
+  if (h) document.getElementById('version').textContent = 'v' + h.version;
+}
+pollHealth();
+pollStatus();
+setInterval(pollStatus, 2000);
+
+// ── History ───────────────────────────────────────────────────────────────
+async function loadHistory() {
+  const items = await api('GET','history') || [];
+  const el = document.getElementById('history-list');
+  if (!items.length) { el.innerHTML = '<div style="color:var(--muted);font-size:.85rem">Пусто</div>'; return; }
+  el.innerHTML = items.map(h => `
+    <div class="history-item" onclick="resumeItem('${encodeURIComponent(h.url)}','${encodeURIComponent(h.title||'')}','${h.content_type}')">
+      <div>
+        <div class="title">${h.title || h.url}</div>
+        <div class="meta">${new Date((h.played_at||0)*1000).toLocaleString('ru')}</div>
+      </div>
+      <span class="badge">${h.content_type}</span>
+    </div>`).join('');
+}
+function resumeItem(url, title, type) {
+  api('POST','play',{url:decodeURIComponent(url),title:decodeURIComponent(title),type,resume:true});
+  tab('remote');
+}
+
+// ── IPTV ──────────────────────────────────────────────────────────────────
+async function loadIptvGroups() {
+  const groups = await api('GET','iptv/groups') || [];
+  const el = document.getElementById('iptv-groups');
+  el.innerHTML = ['Все каналы',...groups].map(g => `
+    <div class="list-item" onclick="loadIptvChannels('${g==='Все каналы'?'':g}',this)">
+      <div class="name">${g}</div>
+    </div>`).join('');
+}
+async function loadIptvChannels(group, el) {
+  document.querySelectorAll('#iptv-groups .list-item').forEach(i=>i.classList.remove('sel'));
+  el.classList.add('sel');
+  const params = group ? '?group='+encodeURIComponent(group) : '';
+  const channels = await api('GET','iptv/channels'+params) || [];
+  const cel = document.getElementById('iptv-channels');
+  if (!channels.length) { cel.innerHTML='<div style="color:var(--muted);font-size:.85rem">Нет каналов</div>'; return; }
+  cel.innerHTML = channels.map(c=>`
+    <div class="list-item" onclick="playIptv('${c.id}')">
+      <div class="name">${c.name}</div>
+      <div class="sub">${c.group}</div>
+    </div>`).join('');
+}
+async function playIptv(id) {
+  await api('POST','iptv/play/'+id);
+  tab('remote');
+}
+</script>
+</body>
+</html>

@@ -14,6 +14,7 @@ QARYXOS_VERSION="1.0.0"
 INSTALL_DIR="/usr/local/bin"
 CONFIG_DIR="/etc/qaryxos"
 DATA_DIR="/var/lib/qaryxos"
+SRC_DIR="/usr/local/lib/qaryxos"
 REPO="stepan163s/QaryxOS"
 
 [[ $EUID -ne 0 ]] && error "Run as root"
@@ -33,9 +34,12 @@ apt-get install -y --no-install-recommends \
     sqlite3 \
     curl \
     jq \
+    git \
     ffmpeg \
     libdrm2 \
-    libgbm1
+    libgbm1 \
+    kbd \
+    util-linux
 
 # --- Python venv for API ---
 info "Setting up Python environment..."
@@ -94,20 +98,56 @@ cat > "$CONFIG_DIR/versions.json" << EOF
 }
 EOF
 
-# --- Copy overlay files ---
-info "Applying OS overlay..."
-if [[ -d /opt/qaryxos-src/os/overlay ]]; then
-    cp -r /opt/qaryxos-src/os/overlay/* /
+# --- Download source code ---
+info "Downloading QaryxOS source..."
+mkdir -p "$SRC_DIR"
+if [[ -d "$SRC_DIR/.git" ]]; then
+    git -C "$SRC_DIR" pull --quiet
+else
+    git clone --depth=1 "https://github.com/$REPO.git" "$SRC_DIR"
 fi
+
+# --- Install app components ---
+info "Installing API daemon..."
+mkdir -p /usr/local/lib/qaryxos-api
+cp -r "$SRC_DIR/api/"* /usr/local/lib/qaryxos-api/
+/opt/qaryxos-venv/bin/pip install --quiet -r /usr/local/lib/qaryxos-api/requirements.txt
+
+info "Installing mediashell..."
+mkdir -p /usr/local/lib/qaryxos-mediashell
+cp -r "$SRC_DIR/mediashell/"* /usr/local/lib/qaryxos-mediashell/
+
+info "Installing OTA updater..."
+cp "$SRC_DIR/ota/updater.py" /usr/local/bin/qaryxos-ota
+chmod +x /usr/local/bin/qaryxos-ota
+
+# --- Apply OS overlay (systemd units, mpv config, etc.) ---
+info "Applying OS overlay..."
+cp -r "$SRC_DIR/os/overlay/"* /
 
 # --- Enable services ---
 info "Enabling systemd services..."
 systemctl daemon-reload
+systemctl enable qaryxos-mpv.service
 systemctl enable qaryxos-api.service
 systemctl enable qaryxos-mediashell.service
-systemctl enable qaryxos-mpv.service
 systemctl enable qaryxos-update.timer
+systemctl enable qaryxos-youtube-refresh.timer
 
-info "=== Installation complete ==="
-info "Reboot to start QaryxOS"
-info "API will be available at http://$(hostname -I | awk '{print $1}'):8080"
+# --- Setup launcher (autologin + DRM console) ---
+info "Setting up TV launcher mode..."
+bash "$SRC_DIR/os/scripts/setup-launcher.sh"
+
+DEVICE_IP=$(hostname -I | awk '{print $1}')
+info ""
+info "=== QaryxOS installation complete! ==="
+info ""
+info "  Device IP:  $DEVICE_IP"
+info "  API URL:    http://$DEVICE_IP:8080/health"
+info ""
+info "Next: reboot the device"
+info "      → QaryxOS UI will appear on HDMI automatically"
+info ""
+info "Install companion app on your Android phone:"
+info "  https://github.com/$REPO/releases/latest"
+info "  → Enter IP: $DEVICE_IP"

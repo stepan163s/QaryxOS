@@ -3,12 +3,15 @@ QaryxOS REST API Daemon
 FastAPI application — runs on Radxa Zero 3W, port 8080
 """
 
+import asyncio
 import os
 import json
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from routers import playback, ui, youtube, iptv, ota, system
 from services.mpv import MpvService
@@ -29,6 +32,7 @@ async def lifespan(app: FastAPI):
     await mpv.connect()
     app.state.mpv = mpv
     app.state.config = config
+    app.state.ui_key_queue = asyncio.Queue()
     logger.info("API ready on :%d", config.api_port)
     yield
     logger.info("API shutting down...")
@@ -54,3 +58,12 @@ app.include_router(youtube.router,  prefix="/youtube",  tags=["youtube"])
 app.include_router(iptv.router,     prefix="/iptv",     tags=["iptv"])
 app.include_router(ota.router,      prefix="/ota",      tags=["ota"])
 app.include_router(system.router,   tags=["system"])
+
+# ── Web UI (v1.5) ─────────────────────────────────────────────────────────
+_static_dir = os.path.join(os.path.dirname(__file__), "static")
+if os.path.isdir(_static_dir):
+    app.mount("/static", StaticFiles(directory=_static_dir), name="static")
+
+    @app.get("/")
+    async def web_ui():
+        return FileResponse(os.path.join(_static_dir, "index.html"))
