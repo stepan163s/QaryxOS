@@ -1,0 +1,11 @@
+[Unit]
+Description=QaryxOS YouTube Feed Refresh Timer
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=6h
+RandomizedDelaySec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,12 @@
+[Unit]
+Description=QaryxOS OTA Update Check
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/local/bin/qaryxos-ota check
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=qaryxos-ota

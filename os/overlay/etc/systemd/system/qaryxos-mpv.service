@@ -1,0 +1,26 @@
+[Unit]
+Description=QaryxOS mpv Player (IPC server)
+After=network.target sound.target
+Wants=sound.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/mpv \
+    --config-file=/etc/mpv/mpv.conf \
+    --idle=yes \
+    --input-ipc-server=/tmp/mpv.sock \
+    --no-terminal
+ExecStopPost=/bin/rm -f /tmp/mpv.sock
+Restart=always
+RestartSec=2
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=qaryxos-mpv
+
+# Make socket accessible before full startup
+RuntimeDirectory=qaryxos
+RuntimeDirectoryMode=0755
+
+[Install]
+WantedBy=multi-user.target

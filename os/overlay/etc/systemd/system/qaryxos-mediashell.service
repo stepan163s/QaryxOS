@@ -1,0 +1,24 @@
+[Unit]
+Description=QaryxOS TV UI (mediashell)
+After=qaryxos-api.service qaryxos-mpv.service
+Requires=qaryxos-api.service qaryxos-mpv.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/usr/local/lib/qaryxos-mediashell
+ExecStart=/opt/qaryxos-venv/bin/python3 main.py
+Restart=always
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=qaryxos-mediashell
+
+Environment=QARYXOS_API=http://localhost:8080
+Environment=QARYXOS_CONFIG=/etc/qaryxos/config.json
+# DRM/framebuffer access
+Environment=SDL_VIDEODRIVER=kmsdrm
+Environment=SDL_FBDEV=/dev/fb0
+
+[Install]
+WantedBy=multi-user.target

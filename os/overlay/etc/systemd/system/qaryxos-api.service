@@ -1,0 +1,27 @@
+[Unit]
+Description=QaryxOS REST API Daemon
+After=network-online.target qaryxos-mpv.service
+Wants=network-online.target
+Requires=qaryxos-mpv.service
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/usr/local/lib/qaryxos-api
+ExecStart=/opt/qaryxos-venv/bin/uvicorn main:app \
+    --host 0.0.0.0 \
+    --port 8080 \
+    --workers 1 \
+    --log-level warning
+Restart=always
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=qaryxos-api
+
+Environment=QARYXOS_CONFIG=/etc/qaryxos/config.json
+Environment=QARYXOS_DATA=/var/lib/qaryxos
+Environment=MPV_SOCKET=/tmp/mpv.sock
+
+[Install]
+WantedBy=multi-user.target

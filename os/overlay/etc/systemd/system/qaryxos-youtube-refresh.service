@@ -1,0 +1,10 @@
+[Unit]
+Description=QaryxOS YouTube Feed Refresh
+After=network-online.target qaryxos-api.service
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/bin/curl -s -X POST http://localhost:8080/youtube/refresh
+StandardOutput=journal
+SyslogIdentifier=qaryxos-youtube
