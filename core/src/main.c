@@ -73,8 +73,9 @@ static void ws_play_cb(const char *stream_url, void *userdata) {
 /* ── WebSocket message handler ─────────────────────────────────────────────── */
 
 static void ws_dispatch_cmd(const char *json) {
+    fprintf(stderr, "ws recv: %.200s\n", json);
     cJSON *j = cJSON_Parse(json);
-    if (!j) return;
+    if (!j) { fprintf(stderr, "ws recv: JSON parse failed\n"); return; }
 
     const char *cmd = cJSON_GetString(j, "cmd", "");
 
@@ -84,12 +85,13 @@ static void ws_dispatch_cmd(const char *json) {
 
         if (!strcmp(type, "youtube") ||
             strstr(url, "youtube.com") || strstr(url, "youtu.be")) {
-            /* Async YouTube resolve — callback defined below as ws_play_cb */
+            fprintf(stderr, "play: youtube resolve -> %s\n", url);
             static char g_play_orig_url[512];
             strncpy(g_play_orig_url, url, sizeof(g_play_orig_url)-1);
             ytdlp_resolve(url, "1080", ws_play_cb, g_play_orig_url);
         } else {
             const char *profile = (!strcmp(type,"iptv")) ? "live" : NULL;
+            fprintf(stderr, "play: direct -> %s (profile=%s)\n", url, profile ? profile : "none");
             mpv_core_load(url, profile);
             history_record(url, url, type[0] ? type : "direct", "", "", 0);
         }
