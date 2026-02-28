@@ -10,7 +10,7 @@
    We bake two sizes on init: SMALL (20px) and LARGE (36px).
    font_draw picks the nearest baked size. */
 
-#define ATLAS_W    1024
+#define ATLAS_W    2048
 #define ATLAS_H    1024
 #define FIRST_CHAR  32
 #define NUM_CHARS   96    /* ASCII 32–127 */
