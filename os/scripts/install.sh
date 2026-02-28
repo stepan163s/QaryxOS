@@ -110,6 +110,12 @@ if ! grep -q "ytdlp_proxy" "$CONFIG_DIR/config.json"; then
     info "  Added ytdlp_proxy key to existing config"
 fi
 
+# Auto-set proxy if Xray is installed and running on 10809
+if systemctl is-active --quiet xray 2>/dev/null; then
+    sed -i 's|"ytdlp_proxy": ""|"ytdlp_proxy": "http://127.0.0.1:10809"|' "$CONFIG_DIR/config.json"
+    info "  Xray detected — ytdlp_proxy set to http://127.0.0.1:10809"
+fi
+
 # ── 6. mpv.conf ───────────────────────────────────────────────────────────────
 
 info "Installing mpv config (hwdec rkmpp)..."
