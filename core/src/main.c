@@ -323,8 +323,9 @@ int main(void) {
         epoll_add(input_fd(), EPOLLIN, TAG_INPUT);
     epoll_add(ws_listen_fd(), EPOLLIN, TAG_WS_LISTEN);
 
+    static int mpv_wfd = -1;
     if (g_display_ok) {
-        int mpv_wfd = mpv_core_wakeup_fd();
+        mpv_wfd = mpv_core_wakeup_fd();
         if (mpv_wfd >= 0) epoll_add(mpv_wfd, EPOLLIN, TAG_MPV);
     }
 
