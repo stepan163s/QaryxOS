@@ -1,19 +1,24 @@
 package com.qaryxos.companion.data.ws
 
 import android.content.Context
-import com.google.gson.Gson
 import com.google.gson.GsonBuilder
 import com.google.gson.JsonParser
 import com.qaryxos.companion.data.models.HistoryEntry
 import com.qaryxos.companion.data.models.IptvPlaylist
 import com.qaryxos.companion.data.models.ServicesMsg
 import com.qaryxos.companion.data.models.StatusMsg
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -30,7 +35,7 @@ object WsClient {
     private val client = OkHttpClient.Builder()
         .connectTimeout(5, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.SECONDS)       // WebSocket must have no read timeout
-        .pingInterval(20, TimeUnit.SECONDS)
+        .pingInterval(15, TimeUnit.SECONDS)     // detect dead connections faster
         .build()
 
     private var ws: WebSocket? = null
@@ -38,6 +43,26 @@ object WsClient {
     private const val PREFS_NAME = "qaryxos_prefs"
     private const val KEY_DEVICE_IP = "device_ip"
     const val DEFAULT_PORT = 8080
+
+    // ── Auto-reconnect ────────────────────────────────────────────────────────
+
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private var reconnectJob: Job? = null
+    private var reconnectDelay = 2_000L      // starts at 2s
+    private var lastHost = ""
+    private var lastPort = DEFAULT_PORT
+    private var userDisconnected = false     // true only after explicit disconnect()
+
+    private fun scheduleReconnect() {
+        reconnectJob?.cancel()
+        reconnectJob = scope.launch {
+            delay(reconnectDelay)
+            reconnectDelay = (reconnectDelay * 2).coerceAtMost(30_000L)
+            if (!userDisconnected && lastHost.isNotEmpty()) {
+                connectInternal(lastHost, lastPort)
+            }
+        }
+    }
 
     // ── Connection state ──────────────────────────────────────────────────────
 
@@ -48,45 +73,49 @@ object WsClient {
 
     // ── Server push flows ─────────────────────────────────────────────────────
 
-    /** Status pushed by server every ~500 ms while connected. */
     private val _status = MutableStateFlow<StatusMsg?>(null)
     val status: StateFlow<StatusMsg?> = _status.asStateFlow()
 
-    /** One-shot history response (emitted after historyGet()). */
     private val _historyFlow = MutableSharedFlow<List<HistoryEntry>>(extraBufferCapacity = 1)
     val historyFlow: SharedFlow<List<HistoryEntry>> = _historyFlow.asSharedFlow()
 
-    /** One-shot playlists response (emitted after playlistsGet()). */
     private val _playlistsFlow = MutableSharedFlow<List<IptvPlaylist>>(extraBufferCapacity = 1)
     val playlistsFlow: SharedFlow<List<IptvPlaylist>> = _playlistsFlow.asSharedFlow()
 
-    /** Error messages from the server (e.g. yt-dlp resolve failure). */
     private val _errorFlow = MutableSharedFlow<String>(extraBufferCapacity = 4)
     val errorFlow: SharedFlow<String> = _errorFlow.asSharedFlow()
 
-    /** Service states (xray + tailscaled) pushed after service_get / service_set. */
     private val _servicesFlow = MutableStateFlow<ServicesMsg?>(null)
     val servicesFlow: StateFlow<ServicesMsg?> = _servicesFlow.asStateFlow()
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
 
     fun connect(host: String, port: Int = DEFAULT_PORT) {
+        userDisconnected = false
+        reconnectDelay = 2_000L
+        lastHost = host
+        lastPort = port
+        connectInternal(host, port)
+    }
+
+    private fun connectInternal(host: String, port: Int) {
         ws?.cancel()
         _state.value = WsState.CONNECTING
-        // Wrap IPv6 addresses in brackets for proper URL formatting
         val urlHost = if (host.contains(":")) "[$host]" else host
         val req = Request.Builder().url("ws://$urlHost:$port/").build()
         ws = client.newWebSocket(req, listener)
     }
 
     fun disconnect() {
+        userDisconnected = true
+        reconnectJob?.cancel()
         ws?.close(1000, "user disconnect")
         ws = null
         _state.value = WsState.DISCONNECTED
         _status.value = null
     }
 
-    // ── Persistence (same prefs key as old ApiClient — existing saved IPs work) ─
+    // ── Persistence ───────────────────────────────────────────────────────────
 
     fun saveIp(context: Context, ip: String) {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -123,9 +152,9 @@ object WsClient {
     fun historyClear()              = send(mapOf("cmd" to "history_clear"))
 
     // IPTV playlists
-    fun playlistsGet()                               = send(mapOf("cmd" to "playlists_get"))
-    fun playlistAdd(url: String, name: String)       = send(mapOf("cmd" to "playlist_add", "url" to url, "name" to name))
-    fun playlistDel(id: String)                      = send(mapOf("cmd" to "playlist_del", "id" to id))
+    fun playlistsGet()                           = send(mapOf("cmd" to "playlists_get"))
+    fun playlistAdd(url: String, name: String)   = send(mapOf("cmd" to "playlist_add", "url" to url, "name" to name))
+    fun playlistDel(id: String)                  = send(mapOf("cmd" to "playlist_del", "id" to id))
 
     // Services
     fun serviceGet()                             = send(mapOf("cmd" to "service_get"))
@@ -141,6 +170,7 @@ object WsClient {
 
         override fun onOpen(webSocket: WebSocket, response: Response) {
             _state.value = WsState.CONNECTED
+            reconnectDelay = 2_000L   // reset backoff on successful connect
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) {
@@ -177,11 +207,13 @@ object WsClient {
             webSocket.close(1000, null)
             _state.value = WsState.DISCONNECTED
             _status.value = null
+            if (!userDisconnected) scheduleReconnect()
         }
 
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
             _state.value = WsState.DISCONNECTED
             _status.value = null
+            if (!userDisconnected) scheduleReconnect()
         }
     }
 }
