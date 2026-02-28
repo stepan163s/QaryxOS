@@ -10,6 +10,7 @@ typedef struct {
     int      volume;            /* 0-100, default 80 */
     int      screen_w;
     int      screen_h;
+    char     ytdlp_proxy[256];  /* optional HTTP proxy for yt-dlp, e.g. http://127.0.0.1:10809 */
 } Config;
 
 /* Load config from CONFIG_FILE. Missing keys get defaults. */

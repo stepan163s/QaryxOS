@@ -95,12 +95,19 @@ if [[ ! -f "$CONFIG_DIR/config.json" ]]; then
   "data_dir": "/var/lib/qaryxos",
   "volume": 80,
   "screen_w": 1920,
-  "screen_h": 1080
+  "screen_h": 1080,
+  "ytdlp_proxy": ""
 }
 EOF
     info "  Config written to $CONFIG_DIR/config.json"
 else
     info "  Config already exists — skipping"
+fi
+
+# Inject ytdlp_proxy key if missing (for upgrades from older installs)
+if ! grep -q "ytdlp_proxy" "$CONFIG_DIR/config.json"; then
+    sed -i 's/}[[:space:]]*$/,\n  "ytdlp_proxy": ""\n}/' "$CONFIG_DIR/config.json"
+    info "  Added ytdlp_proxy key to existing config"
 fi
 
 # ── 6. mpv.conf ───────────────────────────────────────────────────────────────

@@ -7,6 +7,10 @@
 #define CACHE_TTL     (4*3600)
 #define CACHE_MAX     50
 
+/* Set optional HTTP proxy used for all yt-dlp calls (e.g. "http://127.0.0.1:10809").
+   Pass NULL or "" to disable. */
+void ytdlp_set_proxy(const char *proxy_url);
+
 typedef struct {
     char    id[64];
     char    title[256];

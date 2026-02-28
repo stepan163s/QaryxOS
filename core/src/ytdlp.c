@@ -64,6 +64,15 @@ typedef struct {
 
 static Pending g_pending[MAX_PENDING];
 static int     g_pending_n = 0;
+static char    g_proxy[256] = "";
+
+void ytdlp_set_proxy(const char *proxy_url) {
+    if (proxy_url && proxy_url[0])
+        strncpy(g_proxy, proxy_url, sizeof(g_proxy)-1);
+    else
+        g_proxy[0] = '\0';
+    fprintf(stderr, "ytdlp: proxy=%s\n", g_proxy[0] ? g_proxy : "(none)");
+}
 
 static Pending *find_pending(int fd) {
     for (int i = 0; i < g_pending_n; i++)
@@ -112,9 +121,16 @@ void ytdlp_resolve(const char *url, const char *quality,
         /* Redirect stderr to /dev/null */
         int devnull = open("/dev/null", O_WRONLY);
         if (devnull >= 0) dup2(devnull, STDERR_FILENO);
-        execlp(YTDLP_BIN, "yt-dlp",
-               "--no-warnings", "--no-playlist",
-               "-f", fmt, "--get-url", url, NULL);
+        if (g_proxy[0]) {
+            execlp(YTDLP_BIN, "yt-dlp",
+                   "--no-warnings", "--no-playlist",
+                   "--proxy", g_proxy,
+                   "-f", fmt, "--get-url", url, NULL);
+        } else {
+            execlp(YTDLP_BIN, "yt-dlp",
+                   "--no-warnings", "--no-playlist",
+                   "-f", fmt, "--get-url", url, NULL);
+        }
         _exit(1);
     }
 

@@ -41,8 +41,9 @@ void config_load(Config *cfg) {
     cfg->screen_h = (int)     cJSON_GetNumber(j, "screen_h", cfg->screen_h);
 
     const char *s;
-    if ((s = cJSON_GetString(j, "data_dir",  NULL))) strncpy(cfg->data_dir,  s, sizeof(cfg->data_dir)-1);
-    if ((s = cJSON_GetString(j, "font_path", NULL))) strncpy(cfg->font_path, s, sizeof(cfg->font_path)-1);
+    if ((s = cJSON_GetString(j, "data_dir",    NULL))) strncpy(cfg->data_dir,    s, sizeof(cfg->data_dir)-1);
+    if ((s = cJSON_GetString(j, "font_path",   NULL))) strncpy(cfg->font_path,   s, sizeof(cfg->font_path)-1);
+    if ((s = cJSON_GetString(j, "ytdlp_proxy", NULL))) strncpy(cfg->ytdlp_proxy, s, sizeof(cfg->ytdlp_proxy)-1);
 
     cJSON_Delete(j);
 }

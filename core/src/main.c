@@ -295,6 +295,7 @@ int main(void) {
 
     /* Config */
     config_load(&g_cfg);
+    ytdlp_set_proxy(g_cfg.ytdlp_proxy);
 
     /* DRM + EGL — non-fatal: WebSocket runs even without a display */
     if (drm_init(&g_drm) < 0) {
