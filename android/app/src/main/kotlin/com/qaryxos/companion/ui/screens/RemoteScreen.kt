@@ -1,6 +1,7 @@
 package com.qaryxos.companion.ui.screens
 
-import android.content.Context
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -9,151 +10,177 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.qaryxos.companion.data.api.ApiClient
-import com.qaryxos.companion.data.models.KeyRequest
-import com.qaryxos.companion.data.models.SeekRequest
-import com.qaryxos.companion.data.models.VolumeRequest
+import com.qaryxos.companion.data.ws.WsClient
+import com.qaryxos.companion.data.ws.WsState
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 
 @Composable
 fun RemoteScreen() {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val api = ApiClient.getApiForContext(context)
+    val scope   = rememberCoroutineScope()
+    val status  by WsClient.status.collectAsState()
+    val wsState by WsClient.state.collectAsState()
 
-    var status by remember { mutableStateOf("●") }
-    var connected by remember { mutableStateOf(true) }
+    val connected = wsState == WsState.CONNECTED
+    var volume by remember { mutableIntStateOf(80) }
 
-    suspend fun sendKey(key: String) {
-        runCatching { api.sendKey(KeyRequest(key)) }
-            .onFailure { connected = false }
-            .onSuccess { connected = true }
+    LaunchedEffect(status?.volume) {
+        status?.volume?.let { volume = it }
     }
 
-    suspend fun seek(s: Float) = runCatching { api.seek(SeekRequest(s)) }
-    suspend fun volChange(delta: Int) {
-        val st = runCatching { api.status() }.getOrNull()?.body() ?: return
-        api.volume(VolumeRequest((st.volume + delta).coerceIn(0, 100)))
-    }
+    fun key(k: String) = scope.launch { WsClient.sendKey(k) }
 
     Column(
-        modifier = Modifier.fillMaxSize().padding(16.dp),
+        Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).padding(bottom = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        // Connection indicator
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            val dot = if (connected) Color(0xFF4CAF50) else Color(0xFFF44336)
-            Text(status, color = dot)
-            Spacer(Modifier.width(8.dp))
-            Text(if (connected) "Connected" else "Disconnected",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-
-        Spacer(Modifier.height(24.dp))
-
-        // D-pad
-        Box(modifier = Modifier.size(220.dp), contentAlignment = Alignment.Center) {
-            // Up
-            Box(Modifier.align(Alignment.TopCenter)) {
-                DpadButton(icon = { Icon(Icons.Default.KeyboardArrowUp, null) }) {
-                    scope.launch { sendKey("up") }
+        // Now Playing bar
+        Surface(Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.surfaceVariant, tonalElevation = 2.dp) {
+            Row(Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Box(Modifier.size(8.dp).clip(CircleShape).background(
+                    if (connected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error))
+                Column(Modifier.weight(1f)) {
+                    val title = when {
+                        !connected -> "Disconnected"
+                        status?.state == "playing" || status?.state == "paused" ->
+                            status?.url?.substringAfterLast("/")?.substringBefore("?")?.take(50) ?: "Playing"
+                        else -> "Idle"
+                    }
+                    Text(title, style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    status?.let { st ->
+                        if (st.duration > 0) {
+                            val progress = (st.position / st.duration).coerceIn(0.0, 1.0).toFloat()
+                            Spacer(Modifier.height(4.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                LinearProgressIndicator(progress = { progress },
+                                    Modifier.weight(1f).height(2.dp))
+                                Text("${fmtTime(st.position)} / ${fmtTime(st.duration)}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
                 }
-            }
-            // Left
-            Box(Modifier.align(Alignment.CenterStart)) {
-                DpadButton(icon = { Icon(Icons.Default.KeyboardArrowLeft, null) }) {
-                    scope.launch { sendKey("left") }
-                }
-            }
-            // OK center
-            Button(
-                onClick = { scope.launch { sendKey("ok") } },
-                modifier = Modifier.size(72.dp),
-                shape = CircleShape,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary
-                )
-            ) { Text("OK") }
-            // Right
-            Box(Modifier.align(Alignment.CenterEnd)) {
-                DpadButton(icon = { Icon(Icons.Default.KeyboardArrowRight, null) }) {
-                    scope.launch { sendKey("right") }
-                }
-            }
-            // Down
-            Box(Modifier.align(Alignment.BottomCenter)) {
-                DpadButton(icon = { Icon(Icons.Default.KeyboardArrowDown, null) }) {
-                    scope.launch { sendKey("down") }
-                }
+                Icon(when (status?.state) {
+                    "playing" -> Icons.Default.PlayArrow
+                    "paused"  -> Icons.Default.Pause
+                    else      -> Icons.Default.Tv
+                }, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
             }
         }
 
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.weight(0.5f))
+
+        // D-pad with horizontal swipe-to-seek
+        Box(Modifier.size(260.dp).pointerInput(Unit) {
+            detectHorizontalDragGestures { _, dx ->
+                if (abs(dx) > 60) scope.launch { WsClient.seek(if (dx > 0) 30.0 else -30.0) }
+            }
+        }, contentAlignment = Alignment.Center) {
+            Box(Modifier.align(Alignment.TopCenter).padding(top = 8.dp)) {
+                FilledTonalIconButton({ key("up") }, Modifier.size(68.dp)) {
+                    Icon(Icons.Default.KeyboardArrowUp, null, Modifier.size(32.dp)) }
+            }
+            Box(Modifier.align(Alignment.CenterStart).padding(start = 8.dp)) {
+                FilledTonalIconButton({ key("left") }, Modifier.size(68.dp)) {
+                    Icon(Icons.Default.KeyboardArrowLeft, null, Modifier.size(32.dp)) }
+            }
+            FilledIconButton({ key("ok") }, Modifier.size(80.dp), shape = CircleShape,
+                colors = IconButtonDefaults.filledIconButtonColors(
+                    containerColor = MaterialTheme.colorScheme.primary)) {
+                Text("OK", style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onPrimary)
+            }
+            Box(Modifier.align(Alignment.CenterEnd).padding(end = 8.dp)) {
+                FilledTonalIconButton({ key("right") }, Modifier.size(68.dp)) {
+                    Icon(Icons.Default.KeyboardArrowRight, null, Modifier.size(32.dp)) }
+            }
+            Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp)) {
+                FilledTonalIconButton({ key("down") }, Modifier.size(68.dp)) {
+                    Icon(Icons.Default.KeyboardArrowDown, null, Modifier.size(32.dp)) }
+            }
+        }
+
+        Spacer(Modifier.height(20.dp))
 
         // Playback controls
-        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            FilledTonalButton(onClick = { scope.launch { seek(-30f) } }) {
-                Icon(Icons.Default.FastRewind, null)
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            FilledTonalButton({ scope.launch { WsClient.seek(-30.0) } },
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp)) {
+                Icon(Icons.Default.FastRewind, null, Modifier.size(18.dp))
                 Spacer(Modifier.width(4.dp))
                 Text("−30s")
             }
-            FilledTonalButton(onClick = { scope.launch { api.pause() } }) {
-                Icon(Icons.Default.PlayArrow, null)
-                Spacer(Modifier.width(4.dp))
-                Text("Play/Pause")
+            FilledIconButton({ scope.launch { WsClient.pause() } }, Modifier.size(64.dp), shape = CircleShape) {
+                Icon(
+                    if (status?.paused == true || status?.state == "idle")
+                        Icons.Default.PlayArrow else Icons.Default.Pause,
+                    null, Modifier.size(32.dp))
             }
-            FilledTonalButton(onClick = { scope.launch { seek(30f) } }) {
+            FilledTonalButton({ scope.launch { WsClient.seek(30.0) } },
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp)) {
                 Text("+30s")
                 Spacer(Modifier.width(4.dp))
-                Icon(Icons.Default.FastForward, null)
+                Icon(Icons.Default.FastForward, null, Modifier.size(18.dp))
             }
         }
 
         Spacer(Modifier.height(16.dp))
 
-        // Volume + Stop + Home
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            IconButton(onClick = { scope.launch { volChange(-10) } }) {
-                Icon(Icons.Default.VolumeDown, "Volume Down")
-            }
-            IconButton(onClick = { scope.launch { volChange(10) } }) {
-                Icon(Icons.Default.VolumeUp, "Volume Up")
-            }
-            Spacer(Modifier.width(8.dp))
-            FilledTonalButton(onClick = { scope.launch { api.stop() } }) {
-                Icon(Icons.Default.Stop, null)
-                Spacer(Modifier.width(4.dp))
-                Text("Stop")
-            }
-            FilledTonalButton(onClick = { scope.launch { sendKey("home") } }) {
-                Icon(Icons.Default.Home, null)
-                Spacer(Modifier.width(4.dp))
-                Text("Home")
+        // Volume slider
+        Row(Modifier.padding(horizontal = 32.dp).fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Icon(Icons.Default.VolumeDown, null, Modifier.size(20.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Slider(
+                value = volume.toFloat(),
+                onValueChange = { volume = it.toInt() },
+                onValueChangeFinished = { scope.launch { WsClient.volume(volume) } },
+                valueRange = 0f..100f,
+                modifier = Modifier.weight(1f),
+            )
+            Icon(Icons.Default.VolumeUp, null, Modifier.size(20.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("$volume", style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.width(28.dp))
+        }
+
+        Spacer(Modifier.height(8.dp))
+
+        // Utility buttons
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            listOf(
+                Triple(Icons.Default.Stop,      "Stop") { scope.launch { WsClient.stop() }; Unit },
+                Triple(Icons.Default.Home,      "Home") { key("home"); Unit },
+                Triple(Icons.Default.ArrowBack, "Back") { key("back"); Unit },
+                Triple(Icons.Default.Menu,      "Menu") { key("menu"); Unit },
+            ).forEach { (icon, label, action) ->
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    FilledTonalIconButton(action, Modifier.size(52.dp)) { Icon(icon, label) }
+                    Text(label, style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
         }
 
-        Spacer(Modifier.height(12.dp))
-
-        // Back button
-        OutlinedButton(onClick = { scope.launch { sendKey("back") } }) {
-            Icon(Icons.Default.ArrowBack, null)
-            Spacer(Modifier.width(4.dp))
-            Text("Back")
-        }
+        Spacer(Modifier.weight(1f))
     }
 }
 
-@Composable
-private fun DpadButton(
-    icon: @Composable () -> Unit,
-    onClick: () -> Unit,
-) {
-    FilledTonalIconButton(
-        onClick = onClick,
-        modifier = Modifier.size(64.dp),
-    ) { icon() }
+private fun fmtTime(secs: Double): String {
+    val s = secs.toInt()
+    return if (s >= 3600)
+        "${s / 3600}:${String.format("%02d", (s % 3600) / 60)}:${String.format("%02d", s % 60)}"
+    else
+        "${s / 60}:${String.format("%02d", s % 60)}"
 }

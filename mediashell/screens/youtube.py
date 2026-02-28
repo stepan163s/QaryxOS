@@ -44,6 +44,7 @@ class YoutubeScreen(BaseScreen):
             self.videos = resp.json() if resp.is_success else []
         except Exception:
             self.videos = []
+        self.focused = min(self.focused, len(self.videos) - 1) if self.videos else 0
 
     def draw(self, surface: pygame.Surface) -> None:
         self._ensure_fonts()

@@ -66,7 +66,7 @@ async def play_channel(channel_id: str, request: Request):
 
     mpv = request.app.state.mpv
     try:
-        await mpv.load(channel.url)
+        await mpv.load(channel.url, profile="live")   # low-latency profile for live streams
         return {"ok": True, "channel": channel.name, "url": channel.url}
     except MpvError as e:
         raise HTTPException(503, str(e))

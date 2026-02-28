@@ -4,7 +4,7 @@ import com.google.gson.annotations.SerializedName
 
 // ── Requests ──────────────────────────────────────────────────────────────────
 
-data class PlayRequest(val url: String, val type: String? = null)
+data class PlayRequest(val url: String, val type: String? = null, val resume: Boolean = false)
 data class SeekRequest(val seconds: Float)
 data class VolumeRequest(val level: Int)
 data class KeyRequest(val key: String)
@@ -68,6 +68,32 @@ data class IptvChannel(
     val url: String,
     val group: String = "",
     val logo: String = "",
+)
+
+// ── History ───────────────────────────────────────────────────────────────────
+
+data class HistoryEntry(
+    val url: String,
+    val title: String,
+    @SerializedName("content_type") val contentType: String,
+    @SerializedName("channel_name") val channelName: String = "",
+    val thumbnail: String = "",
+    val duration: Float = 0f,
+    val position: Float = 0f,
+    @SerializedName("played_at") val playedAt: Double = 0.0,
+)
+
+// ── WebSocket server push ─────────────────────────────────────────────────────
+
+/** Status message pushed by the Qaryx server every ~500 ms. */
+data class StatusMsg(
+    val type: String = "status",
+    val state: String = "idle",     // idle | playing | paused | error
+    val url: String = "",
+    val position: Double = 0.0,
+    val duration: Double = 0.0,
+    val volume: Int = 80,
+    val paused: Boolean = false,
 )
 
 // ── OTA ───────────────────────────────────────────────────────────────────────

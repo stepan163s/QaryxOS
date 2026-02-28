@@ -1,7 +1,10 @@
 #pragma once
 #include <stdint.h>
+#include <libdrm/drm.h>        /* defines legacy drm_context_t / drm_handle_t / drm_magic_t
+                                   — must come before xf86drm.h on libdrm >= 2.4.107 */
 #include <xf86drm.h>
 #include <xf86drmMode.h>
+#include <libdrm/drm_fourcc.h> /* DRM_FORMAT_ARGB8888 */
 #include <gbm.h>
 
 typedef struct {

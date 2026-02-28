@@ -41,8 +41,10 @@ class HistoryService:
 
     def _save(self, entries: list[HistoryEntry]) -> None:
         os.makedirs(os.path.dirname(self.history_file), exist_ok=True)
-        with open(self.history_file, "w") as f:
+        tmp = self.history_file + ".tmp"
+        with open(tmp, "w") as f:
             json.dump([asdict(e) for e in entries[:MAX_ENTRIES]], f, indent=2)
+        os.replace(tmp, self.history_file)  # atomic: no partial reads
 
     def record(
         self,

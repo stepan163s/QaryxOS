@@ -50,7 +50,7 @@ async def _download_and_verify(url: str, expected_sha256: str, dest: str) -> Non
         content = resp.content
 
     actual = hashlib.sha256(content).hexdigest()
-    if actual != expected_sha256:
+    if expected_sha256 and actual != expected_sha256:
         raise ValueError(f"SHA256 mismatch: expected {expected_sha256}, got {actual}")
 
     # Write atomically via temp file

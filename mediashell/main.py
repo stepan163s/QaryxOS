@@ -44,6 +44,7 @@ class MediaShell:
         self.clock = pygame.time.Clock()
         self.current_screen = "home"
         self.api = httpx.Client(base_url=API_BASE, timeout=5)
+        self._poll_api = httpx.Client(base_url=API_BASE, timeout=2)  # thread-local, not shared
         self.key_queue: list[str] = []
 
         self.screens = {
@@ -61,7 +62,7 @@ class MediaShell:
         last_key = None
         while True:
             try:
-                resp = self.api.get("/ui/state")
+                resp = self._poll_api.get("/ui/state")
                 data = resp.json()
                 key = data.get("last_key")
                 if key and key != last_key:
@@ -138,6 +139,7 @@ class MediaShell:
 
     def _quit(self) -> None:
         self.api.close()
+        self._poll_api.close()
         pygame.quit()
         sys.exit(0)
 

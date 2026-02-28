@@ -84,7 +84,13 @@ async def play(req: PlayRequest, request: Request, bg: BackgroundTasks):
 
         if resume_pos > 0:
             await asyncio.sleep(1.5)  # wait for mpv to start
-            await mpv.seek(resume_pos - (await mpv.get_property("time-pos") or 0))
+            try:
+                current_pos = await mpv.get_property("time-pos") or 0
+                seek_by = max(0.0, resume_pos - float(current_pos))
+                if seek_by > 1:
+                    await mpv.seek(seek_by)
+            except MpvError:
+                pass  # seek failed — just play from wherever mpv started
 
         # Record to history
         history.record(
@@ -94,9 +100,10 @@ async def play(req: PlayRequest, request: Request, bg: BackgroundTasks):
             thumbnail=req.thumbnail or "",
         )
 
-        # Start position-saving background task
-        if _position_task is None or _position_task.done():
-            _position_task = asyncio.create_task(_save_position_loop(request))
+        # Cancel stale position-task before starting fresh one
+        if _position_task and not _position_task.done():
+            _position_task.cancel()
+        _position_task = asyncio.create_task(_save_position_loop(request))
 
         return {"ok": True, "url": original_url, "type": content_type,
                 "resumed_from": resume_pos if resume_pos > 0 else None}

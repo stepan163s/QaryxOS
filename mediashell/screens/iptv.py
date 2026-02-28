@@ -135,10 +135,10 @@ class IptvScreen(BaseScreen):
             else:
                 self.ch_idx = max(0, self.ch_idx - 1)
         elif key == "down":
-            if self.pane == "groups":
+            if self.pane == "groups" and self.groups:
                 self.group_idx = min(len(self.groups) - 1, self.group_idx + 1)
                 self._load_channels()
-            else:
+            elif self.pane == "channels" and self.channels:
                 self.ch_idx = min(len(self.channels) - 1, self.ch_idx + 1)
         elif key == "ok":
             if self.pane == "channels" and self.channels:

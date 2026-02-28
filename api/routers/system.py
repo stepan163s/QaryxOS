@@ -11,7 +11,7 @@ router = APIRouter()
 async def health(request: Request):
     cfg = request.app.state.config
     mpv = request.app.state.mpv
-    mpv_ok = await mpv._ensure_connected()
+    mpv_ok = await mpv.is_connected()
     versions = _read_versions()
     return {
         "status": "ok",

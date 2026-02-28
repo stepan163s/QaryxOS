@@ -76,13 +76,20 @@ class MpvService:
                         line = await self._reader.readline()
                         if not line:
                             raise MpvError("mpv socket closed")
-                        data = json.loads(line)
+                        try:
+                            data = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue  # skip malformed mpv event lines
                         if data.get("request_id") == req_id:
                             if data.get("error") != "success":
                                 raise MpvError(data.get("error", "unknown"))
                             return data.get("data")
             except asyncio.TimeoutError:
                 raise MpvError("mpv command timed out")
+
+    async def is_connected(self) -> bool:
+        """Public health-check: True if mpv socket is responsive."""
+        return await self._ensure_connected()
 
     async def get_property(self, prop: str) -> Any:
         return await self.command("get_property", prop)
@@ -92,7 +99,9 @@ class MpvService:
 
     # --- High-level controls ---
 
-    async def load(self, url: str) -> None:
+    async def load(self, url: str, profile: str | None = None) -> None:
+        if profile:
+            await self.set_property("profile", profile)
         await self.command("loadfile", url, "replace")
 
     async def pause(self) -> bool:

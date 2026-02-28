@@ -79,7 +79,17 @@ interface QaryxApi {
     @GET("ota/status")
     suspend fun otaStatus(): Response<OtaStatus>
 
+    // ── History ──────────────────────────────────────────────────────────────
+    @GET("history")
+    suspend fun getHistory(@Query("limit") limit: Int = 30): Response<List<HistoryEntry>>
+
+    @DELETE("history")
+    suspend fun clearHistory(): Response<OkResponse>
+
     // ── System ───────────────────────────────────────────────────────────────
     @GET("health")
     suspend fun health(): Response<HealthResponse>
+
+    @POST("system/reboot")
+    suspend fun reboot(): Response<OkResponse>
 }

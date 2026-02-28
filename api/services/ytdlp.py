@@ -7,19 +7,45 @@ import asyncio
 import json
 import logging
 import os
-from typing import Optional
+import time
+from typing import Optional, Tuple
 
 logger = logging.getLogger("qaryxos.ytdlp")
 
 YTDLP_BIN = os.environ.get("YTDLP_BIN", "/usr/local/bin/yt-dlp")
 RESOLVE_TIMEOUT = 30
 
+# Stream URL cache: original_url -> (stream_url, resolved_at)
+# YouTube CDN URLs are valid ~6h; we cache for 4h to be safe.
+_URL_CACHE: dict[str, Tuple[str, float]] = {}
+_CACHE_TTL  = 4 * 3600   # seconds
+_CACHE_MAX  = 50          # max entries
+
+
+def _cache_get(url: str) -> Optional[str]:
+    entry = _URL_CACHE.get(url)
+    if entry and (time.monotonic() - entry[1]) < _CACHE_TTL:
+        return entry[0]
+    return None
+
+
+def _cache_set(url: str, stream_url: str) -> None:
+    if len(_URL_CACHE) >= _CACHE_MAX:
+        oldest = min(_URL_CACHE, key=lambda k: _URL_CACHE[k][1])
+        del _URL_CACHE[oldest]
+    _URL_CACHE[url] = (stream_url, time.monotonic())
+
 
 async def resolve_url(url: str, quality: str = "1080") -> str:
     """
     Resolve a YouTube (or any yt-dlp compatible) URL to a direct stream URL.
-    Falls back to 720p if 1080p unavailable.
+    Results cached 4h — replaying the same video is instant.
     """
+    cached = _cache_get(url)
+    if cached:
+        logger.debug("yt-dlp cache hit: %s", url)
+        return cached
+
     format_spec = f"bestvideo[height<={quality}]+bestaudio/bestvideo+bestaudio/best"
 
     cmd = [
@@ -48,9 +74,13 @@ async def resolve_url(url: str, quality: str = "1080") -> str:
         if not stream_url:
             raise ValueError("yt-dlp returned empty URL")
 
-        # yt-dlp may return multiple URLs (video+audio) — take first (mpv handles DASH itself)
-        lines = stream_url.splitlines()
-        return lines[0] if lines else stream_url
+        # yt-dlp may return multiple URLs (video+audio) — take first non-empty line
+        result = next((l for l in stream_url.splitlines() if l.strip()), None)
+        if not result:
+            raise ValueError("yt-dlp returned empty URL")
+
+        _cache_set(url, result)
+        return result
 
     except asyncio.TimeoutError:
         raise ValueError("yt-dlp timed out (>30s)")

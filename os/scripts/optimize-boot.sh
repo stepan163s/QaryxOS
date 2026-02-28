@@ -25,7 +25,7 @@ DISABLE_SERVICES=(
     motd-news.timer
     motd-news.service
     bluetooth.service
-    avahi-daemon.service
+    # avahi-daemon.service  ← keep: needed for mDNS device discovery
     ModemManager.service
     wpa_supplicant.service     # if using NetworkManager instead
     networkd-dispatcher.service
@@ -56,6 +56,21 @@ MASK_UNITS=(
 for unit in "${MASK_UNITS[@]}"; do
     systemctl mask "$unit" 2>/dev/null || true
 done
+
+# --- zram: compressed swap (512 MB, zstd) ---
+info "Setting up zram swap..."
+if modprobe zram 2>/dev/null; then
+    echo zstd > /sys/block/zram0/comp_algorithm 2>/dev/null || \
+        echo lz4  > /sys/block/zram0/comp_algorithm 2>/dev/null || true
+    echo 512M > /sys/block/zram0/disksize
+    mkswap /dev/zram0 -L zram0 >/dev/null
+    swapon -p 100 /dev/zram0
+    # Persist via service
+    systemctl enable qaryxos-zram.service 2>/dev/null || true
+    info "  zram0: 512M zstd swap enabled"
+else
+    info "  zram module not available, skipping"
+fi
 
 # --- NetworkManager: reduce connection wait ---
 info "Optimizing NetworkManager..."

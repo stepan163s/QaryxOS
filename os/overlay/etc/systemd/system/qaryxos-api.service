@@ -1,8 +1,8 @@
 [Unit]
 Description=QaryxOS REST API Daemon
-After=network-online.target qaryxos-mpv.service
-Wants=network-online.target
-Requires=qaryxos-mpv.service
+# network-online.target removed — API binds to 0.0.0.0, doesn't need DHCP done
+After=network.target qaryxos-mpv.service qaryxos-cpu-governor.service
+Wants=qaryxos-mpv.service
 
 [Service]
 Type=simple
