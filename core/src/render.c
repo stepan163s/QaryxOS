@@ -34,6 +34,21 @@ static const char *FRAG_TEX_SRC =
     "    gl_FragColor = vec4(c.rgb, c.a * u_alpha);\n"
     "}\n";
 
+/* Glyph shader: single-channel atlas texture used as coverage mask.
+   Works with both GL_ALPHA (ES 2.0) and GL_R8/GL_RED (ES 3.0) textures —
+   on GL_ALPHA the coverage is in .a; on GL_R8 it is in .r.
+   We sample both and take whichever is non-zero. */
+static const char *FRAG_GLYPH_SRC =
+    "precision mediump float;\n"
+    "varying   vec2      v_uv;\n"
+    "uniform   sampler2D u_tex;\n"
+    "uniform   vec4      u_color;\n"
+    "void main() {\n"
+    "    vec4 s = texture2D(u_tex, v_uv);\n"
+    "    float coverage = max(s.a, s.r);\n"
+    "    gl_FragColor = vec4(u_color.rgb, u_color.a * coverage);\n"
+    "}\n";
+
 /* ── Internal state ─────────────────────────────────────────────────────── */
 
 typedef struct {
@@ -48,8 +63,15 @@ typedef struct {
     GLint  u_screen, u_tex, u_alpha;
 } TexProg;
 
-static RectProg g_rect;
-static TexProg  g_tex;
+typedef struct {
+    GLuint prog;
+    GLint  a_pos, a_uv;
+    GLint  u_screen, u_tex, u_color;
+} GlyphProg;
+
+static RectProg  g_rect;
+static TexProg   g_tex;
+static GlyphProg g_glyph;
 GLuint   g_vbo;
 
 /* ── Helpers ────────────────────────────────────────────────────────────── */
@@ -118,6 +140,15 @@ int render_init(int sw, int sh) {
     g_tex.u_screen= glGetUniformLocation(g_tex.prog, "u_screen");
     g_tex.u_tex   = glGetUniformLocation(g_tex.prog, "u_tex");
     g_tex.u_alpha = glGetUniformLocation(g_tex.prog, "u_alpha");
+
+    /* Glyph program (font atlas, single-channel, coloured) */
+    g_glyph.prog = link_program(VERT_SRC, FRAG_GLYPH_SRC);
+    if (!g_glyph.prog) return -1;
+    g_glyph.a_pos   = glGetAttribLocation (g_glyph.prog, "a_pos");
+    g_glyph.a_uv    = glGetAttribLocation (g_glyph.prog, "a_uv");
+    g_glyph.u_screen= glGetUniformLocation(g_glyph.prog, "u_screen");
+    g_glyph.u_tex   = glGetUniformLocation(g_glyph.prog, "u_tex");
+    g_glyph.u_color = glGetUniformLocation(g_glyph.prog, "u_color");
 
     /* Shared VBO (quad: pos xy + uv xy, 4 vertices) */
     glGenBuffers(1, &g_vbo);
@@ -192,5 +223,36 @@ void render_texture(int x, int y, int w, int h, GLuint tex, float alpha) {
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
     glDisableVertexAttribArray(g_tex.a_pos);
     glDisableVertexAttribArray(g_tex.a_uv);
+    glBindTexture(GL_TEXTURE_2D, 0);
+}
+
+static void upload_quad_uv(int x, int y, int w, int h,
+                            float u0, float v0, float u1, float v1) {
+    float x1 = x, y1 = y, x2 = x+w, y2 = y+h;
+    float verts[] = {
+        x1, y1,  u0, v0,
+        x2, y1,  u1, v0,
+        x1, y2,  u0, v1,
+        x2, y2,  u1, v1,
+    };
+    glBindBuffer(GL_ARRAY_BUFFER, g_vbo);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_STREAM_DRAW);
+}
+
+void render_glyph(int x, int y, int w, int h,
+                  GLuint tex,
+                  float u0, float v0, float u1, float v1,
+                  float r,  float g,  float b,  float a) {
+    upload_quad_uv(x, y, w, h, u0, v0, u1, v1);
+    glUseProgram(g_glyph.prog);
+    glUniform2f(g_glyph.u_screen, (float)g_screen_w, (float)g_screen_h);
+    glUniform1i(g_glyph.u_tex, 0);
+    glUniform4f(g_glyph.u_color, r, g, b, a);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    bind_quad_attribs(g_glyph.a_pos, g_glyph.a_uv);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    glDisableVertexAttribArray(g_glyph.a_pos);
+    glDisableVertexAttribArray(g_glyph.a_uv);
     glBindTexture(GL_TEXTURE_2D, 0);
 }

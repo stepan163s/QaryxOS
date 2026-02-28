@@ -21,13 +21,13 @@ void navigate(const char *name) {
 
 static const struct {
     const char *label;
-    const char *icon;
+    const char *icon;   /* ASCII-only: stays within the baked atlas range 32-127 */
     Screen      dest;
 } TILES[N_TILES] = {
-    { "YouTube",  "▶", SCREEN_YOUTUBE  },
-    { "IPTV",     "📡", SCREEN_IPTV    },
-    { "History",  "🕐", SCREEN_HOME    },   /* TODO: SCREEN_HISTORY */
-    { "Settings", "⚙", SCREEN_SETTINGS },
+    { "YouTube",  "[YT]", SCREEN_YOUTUBE  },
+    { "IPTV",     "[TV]", SCREEN_IPTV    },
+    { "History",  "[<<]", SCREEN_HOME    },
+    { "Settings", "[==]", SCREEN_SETTINGS },
 };
 
 static int g_focused = 0;
@@ -48,7 +48,7 @@ void ui_home_draw(void) {
     if (!strcmp(st.state, "playing") || !strcmp(st.state, "paused"))
         snprintf(status_text, sizeof(status_text),
                  "%s  %d:%02d / %d:%02d  vol %d%%",
-                 !strcmp(st.state,"paused") ? "⏸" : "▶",
+                 !strcmp(st.state,"paused") ? "||" : ">",
                  (int)st.position/60, (int)st.position%60,
                  (int)st.duration/60, (int)st.duration%60,
                  st.volume);

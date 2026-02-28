@@ -112,16 +112,35 @@ static int best_size(float size) {
 void font_draw(int x, int y, const char *str, float size, uint32_t color) {
     if (!g_ready || !str || !*str) return;
 
+    float cr = ((color >> 16) & 0xff) / 255.0f;
+    float cg = ((color >>  8) & 0xff) / 255.0f;
+    float cb = ((color      ) & 0xff) / 255.0f;
+    float ca = ((color >> 24) & 0xff) / 255.0f;
+
     int idx = best_size(size);
     BakedFont *bf = &g_fonts[idx];
-    float scale = size / bf->scale;   /* scale baked glyphs to requested size */
+    float scale = size / bf->scale;
 
     float cx = (float)x;
     float cy = (float)y + bf->scale * scale;  /* baseline */
 
-    for (const char *p = str; *p; p++) {
+    for (const char *p = str; *p; ) {
+        /* Skip multi-byte UTF-8 sequences (emoji, CJK, etc.) not in ASCII atlas */
         unsigned char c = (unsigned char)*p;
-        if (c < FIRST_CHAR || c >= FIRST_CHAR + NUM_CHARS) { cx += size * 0.3f; continue; }
+        if (c >= 0x80) {
+            if      (c >= 0xF0) p += 4;
+            else if (c >= 0xE0) p += 3;
+            else if (c >= 0xC0) p += 2;
+            else                p += 1;
+            cx += size * 0.5f;
+            continue;
+        }
+        p++;
+
+        if (c < FIRST_CHAR || c >= FIRST_CHAR + NUM_CHARS) {
+            cx += size * 0.3f;
+            continue;
+        }
 
         stbtt_bakedchar *bc = &bf->chars[c - FIRST_CHAR];
         float gx = cx + bc->xoff * scale;
@@ -129,43 +148,17 @@ void font_draw(int x, int y, const char *str, float size, uint32_t color) {
         float gw = (bc->x1 - bc->x0) * scale;
         float gh = (bc->y1 - bc->y0) * scale;
 
-        /* UV in atlas: y offset accounts for the strip position */
+        /* Correct UV: glyph is a sub-region within its atlas strip */
         float u0 = (float)bc->x0 / ATLAS_W;
         float v0 = (float)(bf->atlas_y + bc->y0) / ATLAS_H;
         float u1 = (float)bc->x1 / ATLAS_W;
         float v1 = (float)(bf->atlas_y + bc->y1) / ATLAS_H;
 
-        /* We need a custom draw because UV doesn't span 0..1.
-           Encode UVs by building a custom quad using render_texture is not ideal;
-           instead we call GL directly using the texture program via render_texture_uv. */
-
-        /* --- draw quad with custom UV --- */
-        float r = ((color >> 16) & 0xff) / 255.0f;
-        float g2 = ((color >>  8) & 0xff) / 255.0f;
-        float b = ((color      ) & 0xff) / 255.0f;
-        float a = ((color >> 24) & 0xff) / 255.0f;
-
-        /* Use render_rect with a scissor + texture hack:
-           For simplicity use a per-glyph quad upload. */
-        float verts[] = {
-            gx,    gy,    u0, v0,
-            gx+gw, gy,    u1, v0,
-            gx,    gy+gh, u0, v1,
-            gx+gw, gy+gh, u1, v1,
-        };
-
-        extern GLuint g_vbo;
-        /* We access the shared VBO from render.c via extern — acceptable for
-           a tightly coupled module. Alternatively expose a render_draw_quad(). */
-        glBindBuffer(GL_ARRAY_BUFFER, g_vbo);
-        glBufferData(GL_ARRAY_BUFFER, sizeof(verts), verts, GL_STREAM_DRAW);
-
-        /* Use the texture shader (prog stored in render.c — we call render_texture
-           but need custom UV, so we duplicate the bind here using render internals.
-           A cleaner API would expose render_draw_quad_uv(); for now this is fine.) */
-        render_texture((int)gx, (int)gy, (int)gw, (int)gh, g_atlas_tex, a);
-        /* Note: render_texture uses 0..1 UV, so glyphs will appear slightly wrong.
-           A TODO for a proper render_glyph() helper that accepts UV extents. */
+        render_glyph((int)gx, (int)gy,
+                     (int)(gw + 0.5f), (int)(gh + 0.5f),
+                     g_atlas_tex,
+                     u0, v0, u1, v1,
+                     cr, cg, cb, ca);
 
         cx += bc->xadvance * scale;
     }

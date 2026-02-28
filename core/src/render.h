@@ -30,6 +30,15 @@ void render_rect_outline(int x, int y, int w, int h, uint32_t color, int border)
    tex must be a RGBA GL_TEXTURE_2D. */
 void render_texture(int x, int y, int w, int h, GLuint tex, float alpha);
 
+/* Draw a single font glyph quad.
+   tex  — GL_R8 or GL_ALPHA single-channel texture (font atlas).
+   u0,v0,u1,v1 — UV extents within the atlas for this glyph.
+   r,g,b,a     — text colour components (0.0–1.0). */
+void render_glyph(int x, int y, int w, int h,
+                  GLuint tex,
+                  float u0, float v0, float u1, float v1,
+                  float r,  float g,  float b,  float a);
+
 /* ── Colour helpers ────────────────────────────────────────────────────────── */
 static inline uint32_t rgba(uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
     return ((uint32_t)a << 24) | ((uint32_t)r << 16) | ((uint32_t)g << 8) | b;
