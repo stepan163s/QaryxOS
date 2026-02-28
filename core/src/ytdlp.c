@@ -227,10 +227,8 @@ int ytdlp_get_channel_videos(const char *channel_url, int max, YoutubeVideo *out
                 strncpy(v->channel_name, cJSON_GetString(j,"channel",""),  sizeof(v->channel_name)-1);
                 v->duration = (int)cJSON_GetNumber(j,"duration",0);
 
-                char vid_url[512];
-                snprintf(vid_url, sizeof(vid_url),
+                snprintf(v->url, sizeof(v->url),
                          "https://www.youtube.com/watch?v=%s", v->id);
-                strncpy(v->url, vid_url, sizeof(v->url)-1);
 
                 /* Thumbnail: last item in thumbnails array */
                 cJSON *thumbs = cJSON_GetObjectItem(j, "thumbnails");
