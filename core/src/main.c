@@ -59,11 +59,17 @@ static void epoll_del(int fd) {
 static void ws_play_cb(const char *stream_url, void *userdata) {
     const char *orig_url = (const char *)userdata;
     if (!stream_url) {
+        fprintf(stderr, "play: yt-dlp FAILED for %s\n", orig_url);
         cJSON *err = cJSON_CreateObject();
         cJSON_AddStringToObject(err, "type", "error");
         cJSON_AddStringToObject(err, "msg",  "yt-dlp resolve failed");
         char *s = cJSON_Print(err); cJSON_Delete(err);
         ws_broadcast(s); free(s);
+        return;
+    }
+    fprintf(stderr, "play: stream_url=%.120s\n", stream_url);
+    if (!g_display_ok) {
+        fprintf(stderr, "play: no display, cannot play\n");
         return;
     }
     mpv_core_load(stream_url, NULL);
@@ -398,12 +404,12 @@ int main(void) {
             } else {
                 intptr_t val = (intptr_t)tag;
 
-                if (val >= 10100) {
-                    /* yt-dlp pipe fd */
+                if (val >= 10000) {
+                    /* yt-dlp pipe fd (tag = fd + 10000, fd is typically 3-50) */
                     ytdlp_dispatch((int)(val - 10000));
 
                 } else if (val >= 100) {
-                    /* WebSocket client fd */
+                    /* WebSocket client fd (tag = fd + 100) */
                     int cfd = (int)(val - 100);
                     if (ws_client_read(cfd) < 0) {
                         epoll_del(cfd);
