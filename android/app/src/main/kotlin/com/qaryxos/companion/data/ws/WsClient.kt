@@ -67,7 +67,9 @@ object WsClient {
     fun connect(host: String, port: Int = DEFAULT_PORT) {
         ws?.cancel()
         _state.value = WsState.CONNECTING
-        val req = Request.Builder().url("ws://$host:$port/").build()
+        // Wrap IPv6 addresses in brackets for proper URL formatting
+        val urlHost = if (host.contains(":")) "[$host]" else host
+        val req = Request.Builder().url("ws://$urlHost:$port/").build()
         ws = client.newWebSocket(req, listener)
     }
 
