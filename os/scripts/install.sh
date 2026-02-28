@@ -155,7 +155,32 @@ EOF
 info "Installing OTA updater CLI..."
 install -m 755 "$SRC_DIR/ota/updater.py" /usr/local/bin/qaryxos-ota
 
-# ── 11. Enable services ───────────────────────────────────────────────────────
+# ── 11. Tailscale (low-resource config) ──────────────────────────────────────
+
+info "Installing Tailscale..."
+curl -fsSL https://pkgs.tailscale.com/stable/debian/bookworm.noarch.asc \
+    -o /usr/share/keyrings/tailscale-archive-keyring.asc
+echo "deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.asc] \
+https://pkgs.tailscale.com/stable/debian bookworm main" \
+    > /etc/apt/sources.list.d/tailscale.list
+apt-get update -qq
+apt-get install -y --no-install-recommends tailscale
+
+# Override: cap memory, lower IO/CPU priority, disable unused features
+mkdir -p /etc/systemd/system/tailscaled.service.d
+cat > /etc/systemd/system/tailscaled.service.d/override.conf << 'EOF'
+[Service]
+# Limit memory — idle tailscaled uses ~25 MB
+MemoryMax=80M
+MemorySwapMax=0
+# Lower scheduling priority so qaryx always wins
+CPUWeight=20
+IOWeight=20
+# Disable debug logging (reduces overhead)
+Environment=TS_DEBUG_FIREWALL_MODE=auto
+EOF
+
+# ── 12. Enable services ───────────────────────────────────────────────────────
 
 info "Enabling services..."
 systemctl daemon-reload
@@ -163,6 +188,7 @@ systemctl enable qaryxos-zram.service
 systemctl enable qaryxos-cpu-governor.service
 systemctl enable qaryxos.service
 systemctl enable avahi-daemon
+systemctl enable tailscaled
 
 # ── Done ──────────────────────────────────────────────────────────────────────
 
@@ -176,12 +202,13 @@ info "║  Device IP:  ${DEVICE_IP}"
 info "║  Binary:     /usr/bin/qaryx"
 info "║  Config:     $CONFIG_DIR/config.json"
 info "╠══════════════════════════════════════════════════╣"
+info "║  Tailscale: run after reboot:                    ║"
+info "║  tailscale up --accept-dns=false \\               ║"
+info "║             --hostname=qaryxos                   ║"
+info "║  → open the printed URL on any device            ║"
+info "╠══════════════════════════════════════════════════╣"
 info "║  Next step:  reboot                              ║"
 info "║  After reboot → HDMI shows QaryxOS UI (~6s)     ║"
-info "╠══════════════════════════════════════════════════╣"
-info "║  Android app:                                    ║"
-info "║  github.com/$REPO/releases/latest  ║"
-info "║  → Enter IP: ${DEVICE_IP}                    ║"
 info "╚══════════════════════════════════════════════════╝"
 echo
 warn "Run 'reboot' to start QaryxOS"
