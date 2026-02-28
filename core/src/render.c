@@ -50,7 +50,7 @@ typedef struct {
 
 static RectProg g_rect;
 static TexProg  g_tex;
-static GLuint   g_vbo;
+GLuint   g_vbo;
 
 /* ── Helpers ────────────────────────────────────────────────────────────── */
 
