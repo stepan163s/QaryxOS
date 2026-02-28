@@ -38,9 +38,10 @@
 static DrmState g_drm;
 static EglState g_egl;
 static Config   g_cfg;
-static int      g_epoll_fd = -1;
-static int      g_timer_fd = -1;   /* 30ms frame timer */
-static int      g_running  = 1;
+static int      g_epoll_fd  = -1;
+static int      g_timer_fd  = -1;   /* 30ms frame timer */
+static int      g_running   = 1;
+static int      g_display_ok = 0;   /* 0 if no HDMI/DRM available */
 
 /* ── epoll helpers ─────────────────────────────────────────────────────────── */
 
@@ -287,22 +288,26 @@ int main(void) {
     /* Config */
     config_load(&g_cfg);
 
-    /* DRM + EGL */
-    if (drm_init(&g_drm) < 0)    return 1;
-    if (egl_init(&g_egl, &g_drm) < 0) return 1;
-
-    /* Renderer + font */
-    if (render_init(g_cfg.screen_w, g_cfg.screen_h) < 0) return 1;
-    font_init(g_cfg.font_path);   /* non-fatal if font missing */
-
-    /* libmpv */
-    if (mpv_core_init(egl_get_proc_address, NULL) < 0) return 1;
-    mpv_core_set_volume(g_cfg.volume);
+    /* DRM + EGL — non-fatal: WebSocket runs even without a display */
+    if (drm_init(&g_drm) < 0) {
+        fprintf(stderr, "qaryx: no display, running headless (WS only)\n");
+    } else if (egl_init(&g_egl, &g_drm) < 0) {
+        fprintf(stderr, "qaryx: EGL failed, running headless (WS only)\n");
+    } else if (render_init(g_cfg.screen_w, g_cfg.screen_h) < 0) {
+        fprintf(stderr, "qaryx: render init failed, running headless\n");
+    } else {
+        font_init(g_cfg.font_path);
+        if (mpv_core_init(egl_get_proc_address, NULL) < 0)
+            fprintf(stderr, "qaryx: mpv init failed\n");
+        else
+            mpv_core_set_volume(g_cfg.volume);
+        g_display_ok = 1;
+    }
 
     /* libinput */
     if (input_init() < 0) fprintf(stderr, "input: no input devices\n");
 
-    /* WebSocket */
+    /* WebSocket — always required */
     if (ws_init(g_cfg.ws_port, ws_dispatch_cmd) < 0) return 1;
 
     /* Data load */
@@ -312,14 +317,18 @@ int main(void) {
     /* epoll */
     g_epoll_fd = epoll_create1(EPOLL_CLOEXEC);
 
-    epoll_add(g_drm.fd,       EPOLLIN, TAG_DRM);
-    epoll_add(input_fd(),     EPOLLIN, TAG_INPUT);
+    if (g_display_ok)
+        epoll_add(g_drm.fd, EPOLLIN, TAG_DRM);
+    if (input_fd() >= 0)
+        epoll_add(input_fd(), EPOLLIN, TAG_INPUT);
     epoll_add(ws_listen_fd(), EPOLLIN, TAG_WS_LISTEN);
 
-    int mpv_wfd = mpv_core_wakeup_fd();
-    if (mpv_wfd >= 0) epoll_add(mpv_wfd, EPOLLIN, TAG_MPV);
+    if (g_display_ok) {
+        int mpv_wfd = mpv_core_wakeup_fd();
+        if (mpv_wfd >= 0) epoll_add(mpv_wfd, EPOLLIN, TAG_MPV);
+    }
 
-    /* 30ms frame timer */
+    /* 30ms frame timer (used for status push even in headless mode) */
     g_timer_fd = timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC | TFD_NONBLOCK);
     struct itimerspec its = {
         .it_interval = { .tv_sec = 0, .tv_nsec = 33333333 },  /* ~30 FPS */
@@ -329,8 +338,10 @@ int main(void) {
     epoll_add(g_timer_fd, EPOLLIN, TAG_TIMER);
 
     /* Initial screen */
-    ui_home_enter();
-    render_frame();
+    if (g_display_ok) {
+        ui_home_enter();
+        render_frame();
+    }
 
     /* Status push every 500ms */
     static int status_counter = 0;
@@ -372,7 +383,7 @@ int main(void) {
             } else if (tag == TAG_TIMER) {
                 uint64_t expirations;
                 read(g_timer_fd, &expirations, sizeof(expirations));
-                render_frame();
+                if (g_display_ok) render_frame();
 
                 /* Push status every ~500ms (every 15 frames at 30fps) */
                 if (++status_counter >= 15) { status_counter = 0; push_status(); }
