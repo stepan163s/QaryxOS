@@ -2,6 +2,7 @@ package com.qaryxos.companion.data.ws
 
 import android.content.Context
 import com.google.gson.Gson
+import com.google.gson.GsonBuilder
 import com.google.gson.JsonParser
 import com.qaryxos.companion.data.models.HistoryEntry
 import com.qaryxos.companion.data.models.IptvPlaylist
@@ -24,7 +25,7 @@ enum class WsState { DISCONNECTED, CONNECTING, CONNECTED }
 
 object WsClient {
 
-    private val gson = Gson()
+    private val gson = GsonBuilder().disableHtmlEscaping().create()
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(5, TimeUnit.SECONDS)
