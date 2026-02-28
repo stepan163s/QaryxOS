@@ -297,6 +297,15 @@ int main(void) {
     config_load(&g_cfg);
     ytdlp_set_proxy(g_cfg.ytdlp_proxy);
 
+    /* If proxy configured, set env vars so libcurl (used by libmpv) picks it up */
+    if (g_cfg.ytdlp_proxy[0]) {
+        setenv("http_proxy",  g_cfg.ytdlp_proxy, 1);
+        setenv("https_proxy", g_cfg.ytdlp_proxy, 1);
+        setenv("HTTP_PROXY",  g_cfg.ytdlp_proxy, 1);
+        setenv("HTTPS_PROXY", g_cfg.ytdlp_proxy, 1);
+        fprintf(stderr, "qaryx: http_proxy=%s\n", g_cfg.ytdlp_proxy);
+    }
+
     /* DRM + EGL — non-fatal: WebSocket runs even without a display */
     if (drm_init(&g_drm) < 0) {
         fprintf(stderr, "qaryx: no display, running headless (WS only)\n");
