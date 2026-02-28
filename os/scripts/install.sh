@@ -1,6 +1,6 @@
 #!/bin/bash
-# QaryxOS Installation Script (C-stack)
-# Run on fresh Armbian Bookworm Minimal on Radxa Zero 3W
+# QaryxOS Install / Reinstall Script (C-stack)
+# Fresh install or reinstall — one command handles both.
 # Usage: curl -sL https://raw.githubusercontent.com/stepan163s/QaryxOS/main/os/scripts/install.sh | bash
 
 set -euo pipefail
@@ -18,9 +18,22 @@ DATA_DIR="/var/lib/qaryxos"
 
 [[ $EUID -ne 0 ]] && error "Run as root (sudo bash install.sh)"
 
-info "=== QaryxOS v${QARYXOS_VERSION} Installer (C-stack) ==="
+info "=== QaryxOS v${QARYXOS_VERSION} Install / Reinstall ==="
 info "Board: Radxa Zero 3W (RK3566)"
 echo
+
+# ── 0. Stop existing installation (if any) ────────────────────────────────────
+
+if [[ -f /usr/bin/qaryx ]]; then
+    info "Existing installation detected — stopping services..."
+    systemctl stop  qaryxos.service             2>/dev/null || true
+    systemctl stop  qaryxos-cpu-governor.service 2>/dev/null || true
+    systemctl stop  qaryxos-zram.service         2>/dev/null || true
+    systemctl disable qaryxos.service             2>/dev/null || true
+    rm -f /usr/bin/qaryx
+    rm -rf "$SRC_DIR/core/build"
+    info "  Cleaned up previous build"
+fi
 
 # ── 1. System packages ────────────────────────────────────────────────────────
 
