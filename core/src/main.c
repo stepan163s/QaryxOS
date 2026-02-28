@@ -197,7 +197,7 @@ static void ws_dispatch_cmd(const char *json) {
         /* Channels pre-parsed on Android (file-picker path, no HTTP download) */
         const char *name = cJSON_GetString(j, "name", "Imported");
         cJSON *channels = cJSON_GetObjectItem(j, "channels");
-        if (channels && cJSON_IsArray(channels)) {
+        if (channels && channels->type == CJSON_ARRAY) {
             int count = iptv_import_channels(name, channels);
             /* Broadcast updated playlist list */
             int pn; IptvPlaylist *pl = iptv_get_playlists(&pn);
