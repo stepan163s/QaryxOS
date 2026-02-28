@@ -177,8 +177,7 @@ static void ws_dispatch_cmd(const char *json) {
 
     } else if (!strcmp(cmd, "service_set")) {
         const char *name = cJSON_GetString(j, "name", "");
-        cJSON *en_item = cJSON_GetObjectItem(j, "enabled");
-        int enable = en_item && (en_item->type == cJSON_True);
+        int enable = cJSON_GetBool(j, "enabled", 0);
         services_set(name, enable);
         /* broadcast updated state */
         const ServicesState *sv = services_get(0);
