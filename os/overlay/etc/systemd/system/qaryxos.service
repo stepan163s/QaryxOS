@@ -1,0 +1,32 @@
+[Unit]
+Description=Qaryx Core — TV UI + WebSocket server
+Documentation=https://github.com/stepan163s/QaryxOS
+After=network.target sound.target qaryxos-cpu-governor.service qaryxos-zram.service
+Wants=qaryxos-cpu-governor.service qaryxos-zram.service
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/qaryx
+Restart=always
+RestartSec=2
+
+# Allow DRM/KMS framebuffer access
+SupplementaryGroups=video render input
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=qaryx
+
+# Config + data dirs
+Environment=QARYXOS_CONFIG=/etc/qaryxos/config.json
+Environment=QARYXOS_DATA=/var/lib/qaryxos
+
+# OOM: protect the main process, let kernel kill others first
+OOMScoreAdjust=-500
+
+# Increase open file limit (epoll + drm + sockets)
+LimitNOFILE=4096
+
+[Install]
+WantedBy=multi-user.target

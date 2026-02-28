@@ -1,0 +1,22 @@
+[Unit]
+Description=zram compressed swap for QaryxOS
+DefaultDependencies=no
+After=local-fs.target
+Before=swap.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c '\
+    modprobe zram && \
+    ( echo zstd > /sys/block/zram0/comp_algorithm 2>/dev/null || \
+      echo lz4  > /sys/block/zram0/comp_algorithm 2>/dev/null ) && \
+    echo 512M > /sys/block/zram0/disksize && \
+    mkswap /dev/zram0 -L zram0 && \
+    swapon -p 100 /dev/zram0'
+ExecStop=/bin/sh -c '\
+    swapoff /dev/zram0 2>/dev/null || true; \
+    echo 1 > /sys/block/zram0/reset 2>/dev/null || true'
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,58 @@
+# ── macOS ─────────────────────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+
+# ── C / CMake build ───────────────────────────────────────────────────────────
+core/build/
+core/build-cross/
+*.o
+*.a
+*.so
+*.d
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+compile_commands.json
+
+# ── Android build artifacts ───────────────────────────────────────────────────
+android/.gradle/
+android/local.properties
+android/app/build/
+android/build/
+*.apk
+*.aab
+*.keystore
+*.jks
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+.pytest_cache/
+
+# ── IDE ───────────────────────────────────────────────────────────────────────
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+*~
+
+# ── Logs / runtime ────────────────────────────────────────────────────────────
+*.log
+/tmp/
+mpv.sock
+
+# ── OS / device specific (do not commit) ─────────────────────────────────────
+android/local.properties
+os/overlay/etc/qaryxos/secret*.json
