@@ -28,6 +28,7 @@
 #include "config.h"
 #include "../third_party/cjson.h"
 
+#include "services.h"
 #include "ui/home.h"
 #include "ui/youtube.h"
 #include "ui/iptv.h"
@@ -104,9 +105,10 @@ static void ws_dispatch_cmd(const char *json) {
     } else if (!strcmp(cmd, "key")) {
         const char *key = cJSON_GetString(j, "key", "");
         switch (g_screen) {
-            case SCREEN_HOME:    ui_home_key(key);    break;
-            case SCREEN_YOUTUBE: ui_youtube_key(key); break;
-            case SCREEN_IPTV:    ui_iptv_key(key);    break;
+            case SCREEN_HOME:     ui_home_key(key);     break;
+            case SCREEN_YOUTUBE:  ui_youtube_key(key);  break;
+            case SCREEN_IPTV:     ui_iptv_key(key);     break;
+            case SCREEN_SETTINGS: ui_settings_key(key); break;
             default: break;
         }
     } else if (!strcmp(cmd, "navigate")) {
@@ -158,6 +160,41 @@ static void ws_dispatch_cmd(const char *json) {
         iptv_add_playlist(url, name);  /* blocking — TODO: thread */
     } else if (!strcmp(cmd, "playlist_del")) {
         iptv_remove_playlist(cJSON_GetString(j, "id", ""));
+    } else if (!strcmp(cmd, "service_get")) {
+        const ServicesState *sv = services_get(1);
+        cJSON *resp = cJSON_CreateObject();
+        cJSON_AddStringToObject(resp, "type", "services");
+        cJSON *xr = cJSON_CreateObject();
+        cJSON_AddBoolToObject(xr, "active",  sv->xray_active);
+        cJSON_AddBoolToObject(xr, "enabled", sv->xray_enabled);
+        cJSON_AddItemToObject(resp, "xray", xr);
+        cJSON *ts = cJSON_CreateObject();
+        cJSON_AddBoolToObject(ts, "active",  sv->tailscale_active);
+        cJSON_AddBoolToObject(ts, "enabled", sv->tailscale_enabled);
+        cJSON_AddItemToObject(resp, "tailscaled", ts);
+        char *s = cJSON_Print(resp); cJSON_Delete(resp);
+        ws_broadcast(s); free(s);
+
+    } else if (!strcmp(cmd, "service_set")) {
+        const char *name = cJSON_GetString(j, "name", "");
+        cJSON *en_item = cJSON_GetObjectItem(j, "enabled");
+        int enable = en_item && cJSON_IsTrue(en_item);
+        services_set(name, enable);
+        /* broadcast updated state */
+        const ServicesState *sv = services_get(0);
+        cJSON *resp = cJSON_CreateObject();
+        cJSON_AddStringToObject(resp, "type", "services");
+        cJSON *xr = cJSON_CreateObject();
+        cJSON_AddBoolToObject(xr, "active",  sv->xray_active);
+        cJSON_AddBoolToObject(xr, "enabled", sv->xray_enabled);
+        cJSON_AddItemToObject(resp, "xray", xr);
+        cJSON *ts = cJSON_CreateObject();
+        cJSON_AddBoolToObject(ts, "active",  sv->tailscale_active);
+        cJSON_AddBoolToObject(ts, "enabled", sv->tailscale_enabled);
+        cJSON_AddItemToObject(resp, "tailscaled", ts);
+        char *s = cJSON_Print(resp); cJSON_Delete(resp);
+        ws_broadcast(s); free(s);
+
     } else if (!strcmp(cmd, "reboot")) {
         system("systemctl reboot");
     }
@@ -192,9 +229,10 @@ static void render_frame(void) {
 
     /* UI overlay */
     switch (g_screen) {
-        case SCREEN_HOME:    ui_home_draw();    break;
-        case SCREEN_YOUTUBE: ui_youtube_draw(); break;
-        case SCREEN_IPTV:    ui_iptv_draw();    break;
+        case SCREEN_HOME:     ui_home_draw();     break;
+        case SCREEN_YOUTUBE:  ui_youtube_draw();  break;
+        case SCREEN_IPTV:     ui_iptv_draw();     break;
+        case SCREEN_SETTINGS: ui_settings_draw(); break;
         default: break;
     }
 
@@ -318,9 +356,10 @@ int main(void) {
                 int nk = input_dispatch(keys, 16);
                 for (int k = 0; k < nk; k++) {
                     switch (g_screen) {
-                        case SCREEN_HOME:    ui_home_key(keys[k]);    break;
-                        case SCREEN_YOUTUBE: ui_youtube_key(keys[k]); break;
-                        case SCREEN_IPTV:    ui_iptv_key(keys[k]);    break;
+                        case SCREEN_HOME:     ui_home_key(keys[k]);     break;
+                        case SCREEN_YOUTUBE:  ui_youtube_key(keys[k]);  break;
+                        case SCREEN_IPTV:     ui_iptv_key(keys[k]);     break;
+                        case SCREEN_SETTINGS: ui_settings_key(keys[k]); break;
                         default: break;
                     }
                 }

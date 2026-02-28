@@ -5,6 +5,7 @@ import com.google.gson.Gson
 import com.google.gson.JsonParser
 import com.qaryxos.companion.data.models.HistoryEntry
 import com.qaryxos.companion.data.models.IptvPlaylist
+import com.qaryxos.companion.data.models.ServicesMsg
 import com.qaryxos.companion.data.models.StatusMsg
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -61,6 +62,10 @@ object WsClient {
     /** Error messages from the server (e.g. yt-dlp resolve failure). */
     private val _errorFlow = MutableSharedFlow<String>(extraBufferCapacity = 4)
     val errorFlow: SharedFlow<String> = _errorFlow.asSharedFlow()
+
+    /** Service states (xray + tailscaled) pushed after service_get / service_set. */
+    private val _servicesFlow = MutableStateFlow<ServicesMsg?>(null)
+    val servicesFlow: StateFlow<ServicesMsg?> = _servicesFlow.asStateFlow()
 
     // ── Lifecycle ─────────────────────────────────────────────────────────────
 
@@ -121,6 +126,11 @@ object WsClient {
     fun playlistAdd(url: String, name: String)       = send(mapOf("cmd" to "playlist_add", "url" to url, "name" to name))
     fun playlistDel(id: String)                      = send(mapOf("cmd" to "playlist_del", "id" to id))
 
+    // Services
+    fun serviceGet()                             = send(mapOf("cmd" to "service_get"))
+    fun serviceSet(name: String, enabled: Boolean) =
+        send(mapOf("cmd" to "service_set", "name" to name, "enabled" to enabled))
+
     // System
     fun reboot() = send(mapOf("cmd" to "reboot"))
 
@@ -152,6 +162,9 @@ object WsClient {
                             ?: emptyList()
                         _playlistsFlow.tryEmit(list)
                     }
+
+                    "services" ->
+                        _servicesFlow.value = gson.fromJson(obj, ServicesMsg::class.java)
 
                     "error" ->
                         _errorFlow.tryEmit(obj.get("msg")?.asString ?: "unknown error")

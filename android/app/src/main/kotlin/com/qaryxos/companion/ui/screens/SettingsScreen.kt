@@ -17,13 +17,19 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun SettingsScreen(onResetDevice: () -> Unit) {
-    val context = LocalContext.current
-    val scope   = rememberCoroutineScope()
-    val wsState by WsClient.state.collectAsState()
+    val context  = LocalContext.current
+    val scope    = rememberCoroutineScope()
+    val wsState  by WsClient.state.collectAsState()
+    val services by WsClient.servicesFlow.collectAsState()
 
-    var ip        by remember { mutableStateOf(WsClient.getSavedIp(context)) }
-    var editIp    by remember { mutableStateOf(false) }
-    var newIp     by remember { mutableStateOf("") }
+    // Request service state when connected
+    LaunchedEffect(wsState) {
+        if (wsState == WsState.CONNECTED) WsClient.serviceGet()
+    }
+
+    var ip         by remember { mutableStateOf(WsClient.getSavedIp(context)) }
+    var editIp     by remember { mutableStateOf(false) }
+    var newIp      by remember { mutableStateOf("") }
     var connecting by remember { mutableStateOf(false) }
     var showReboot by remember { mutableStateOf(false) }
 
@@ -113,6 +119,75 @@ fun SettingsScreen(onResetDevice: () -> Unit) {
                         Spacer(Modifier.width(8.dp))
                         Text("Reconnect")
                     }
+                }
+            }
+        }
+
+        // ── Services ──────────────────────────────────────────────────────────
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Tune, null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Services", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.weight(1f))
+                    if (wsState == WsState.CONNECTED)
+                        IconButton(onClick = { WsClient.serviceGet() }, Modifier.size(32.dp)) {
+                            Icon(Icons.Default.Refresh, "Refresh", Modifier.size(18.dp))
+                        }
+                }
+                HorizontalDivider()
+
+                // Xray
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Xray proxy", style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            when {
+                                services == null               -> "unknown"
+                                services!!.xray.active         -> "running"
+                                else                           -> "stopped"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (services?.xray?.active == true)
+                                MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(
+                        checked = services?.xray?.enabled == true,
+                        onCheckedChange = { on ->
+                            scope.launch { WsClient.serviceSet("xray", on) }
+                        },
+                        enabled = wsState == WsState.CONNECTED,
+                    )
+                }
+
+                HorizontalDivider()
+
+                // Tailscale
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Tailscale VPN", style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            when {
+                                services == null                    -> "unknown"
+                                services!!.tailscaled.active        -> "connected"
+                                else                                -> "offline"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (services?.tailscaled?.active == true)
+                                MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Switch(
+                        checked = services?.tailscaled?.enabled == true,
+                        onCheckedChange = { on ->
+                            scope.launch { WsClient.serviceSet("tailscaled", on) }
+                        },
+                        enabled = wsState == WsState.CONNECTED,
+                    )
                 }
             }
         }

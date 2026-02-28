@@ -21,3 +21,8 @@ void ui_home_key(const char *key);
 
 /* Called when entering the home screen */
 void ui_home_enter(void);
+
+/* ── Settings screen ──────────────────────────────────────────────────────── */
+void ui_settings_draw(void);
+void ui_settings_key(const char *key);
+void ui_settings_enter(void);

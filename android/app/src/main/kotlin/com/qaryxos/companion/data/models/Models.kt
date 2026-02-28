@@ -96,6 +96,19 @@ data class StatusMsg(
     val paused: Boolean = false,
 )
 
+// ── Services ──────────────────────────────────────────────────────────────────
+
+data class ServiceInfo(
+    val active: Boolean  = false,
+    val enabled: Boolean = false,
+)
+
+data class ServicesMsg(
+    val type: String        = "services",
+    val xray: ServiceInfo   = ServiceInfo(),
+    val tailscaled: ServiceInfo = ServiceInfo(),
+)
+
 // ── OTA ───────────────────────────────────────────────────────────────────────
 
 data class OtaCheckResponse(

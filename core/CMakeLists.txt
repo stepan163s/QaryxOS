@@ -41,6 +41,7 @@ set(SOURCES
     src/history.c
     src/config.c
     src/http_dl.c
+    src/services.c
     src/ui/home.c
     src/ui/youtube.c
     src/ui/iptv.c
