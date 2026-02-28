@@ -157,6 +157,15 @@ int render_init(int sw, int sh) {
 }
 
 void render_begin_frame(void) {
+    /* Restore GL state that libmpv may have changed */
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glViewport(0, 0, g_screen_w, g_screen_h);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glUseProgram(0);
+
     uint8_t r = (COL_BG >> 16) & 0xff;
     uint8_t g = (COL_BG >>  8) & 0xff;
     uint8_t b = (COL_BG      ) & 0xff;

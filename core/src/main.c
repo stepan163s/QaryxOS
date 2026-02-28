@@ -229,23 +229,31 @@ static void push_status(void) {
 
 /* ── Render frame ──────────────────────────────────────────────────────────── */
 
+/* set to 1 once mpv renders its first frame; reset to 0 when going idle */
+static int g_video_frame_ready = 0;
+
 static void render_frame(void) {
     MpvStatus st = mpv_core_get_status();
     int video_active = (!strcmp(st.state, "playing") || !strcmp(st.state, "paused"));
     int wants = mpv_core_wants_render();
 
     if (video_active) {
-        /* When playing OR paused: always render mpv to keep last frame visible.
-           With keep-open=yes, mpv_render_context_render() shows the frozen frame
-           even after wants_render goes back to 0 (avoids black screen on pause). */
-        mpv_core_render(g_cfg.screen_w, g_cfg.screen_h);
-        /* No UI overlay during video playback */
-    } else {
-        /* Idle / error — show the UI */
-        if (wants)
+        if (wants) {
+            /* New decoded frame available — render it */
             mpv_core_render(g_cfg.screen_w, g_cfg.screen_h);
-        else
+            g_video_frame_ready = 1;
+        } else if (!g_video_frame_ready) {
+            /* Buffering: no frame yet, show black */
             render_begin_frame();
+        }
+        /* wants==0 && g_video_frame_ready: paused with last frame already
+           in the EGL back buffer — skip render, just swap below */
+        /* No UI overlay during video */
+    } else {
+        /* Idle / error: reset and draw UI.
+           render_begin_frame() also restores GL state polluted by mpv. */
+        g_video_frame_ready = 0;
+        render_begin_frame();
 
         switch (g_screen) {
             case SCREEN_HOME:     ui_home_draw();     break;
