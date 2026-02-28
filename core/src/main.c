@@ -105,6 +105,7 @@ static void ws_dispatch_cmd(const char *json) {
         mpv_core_pause_toggle();
     } else if (!strcmp(cmd, "stop")) {
         mpv_core_stop();
+        g_screen = SCREEN_HOME;
     } else if (!strcmp(cmd, "seek")) {
         double secs = cJSON_GetNumber(j, "seconds", 0);
         mpv_core_seek(secs);
@@ -229,19 +230,30 @@ static void push_status(void) {
 /* ── Render frame ──────────────────────────────────────────────────────────── */
 
 static void render_frame(void) {
-    /* mpv video first (if playing) */
-    if (mpv_core_wants_render())
-        mpv_core_render(g_cfg.screen_w, g_cfg.screen_h);
-    else
-        render_begin_frame();
+    MpvStatus st = mpv_core_get_status();
+    int video_active = (!strcmp(st.state, "playing") || !strcmp(st.state, "paused"));
+    int wants = mpv_core_wants_render();
 
-    /* UI overlay */
-    switch (g_screen) {
-        case SCREEN_HOME:     ui_home_draw();     break;
-        case SCREEN_YOUTUBE:  ui_youtube_draw();  break;
-        case SCREEN_IPTV:     ui_iptv_draw();     break;
-        case SCREEN_SETTINGS: ui_settings_draw(); break;
-        default: break;
+    if (video_active) {
+        /* When playing OR paused: always render mpv to keep last frame visible.
+           With keep-open=yes, mpv_render_context_render() shows the frozen frame
+           even after wants_render goes back to 0 (avoids black screen on pause). */
+        mpv_core_render(g_cfg.screen_w, g_cfg.screen_h);
+        /* No UI overlay during video playback */
+    } else {
+        /* Idle / error — show the UI */
+        if (wants)
+            mpv_core_render(g_cfg.screen_w, g_cfg.screen_h);
+        else
+            render_begin_frame();
+
+        switch (g_screen) {
+            case SCREEN_HOME:     ui_home_draw();     break;
+            case SCREEN_YOUTUBE:  ui_youtube_draw();  break;
+            case SCREEN_IPTV:     ui_iptv_draw();     break;
+            case SCREEN_SETTINGS: ui_settings_draw(); break;
+            default: break;
+        }
     }
 
     egl_swap(&g_egl, &g_drm);
