@@ -171,13 +171,7 @@ install -m 755 "$SRC_DIR/ota/updater.py" /usr/local/bin/qaryxos-ota
 # ── 11. Tailscale (low-resource config) ──────────────────────────────────────
 
 info "Installing Tailscale..."
-curl -fsSL https://pkgs.tailscale.com/stable/debian/bookworm.noarch.asc \
-    -o /usr/share/keyrings/tailscale-archive-keyring.asc
-echo "deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.asc] \
-https://pkgs.tailscale.com/stable/debian bookworm main" \
-    > /etc/apt/sources.list.d/tailscale.list
-apt-get update -qq
-apt-get install -y --no-install-recommends tailscale
+curl -fsSL https://tailscale.com/install.sh | sh
 
 # Override: cap memory, lower IO/CPU priority, disable unused features
 mkdir -p /etc/systemd/system/tailscaled.service.d
