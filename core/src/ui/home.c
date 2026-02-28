@@ -1,4 +1,5 @@
 #include "home.h"
+#include "iptv.h"
 #include "../render.h"
 #include "../font.h"
 #include "../mpv.h"
@@ -9,9 +10,9 @@
 Screen g_screen = SCREEN_HOME;
 
 void navigate(const char *name) {
-    if      (!strcmp(name, "home"))     g_screen = SCREEN_HOME;
-    else if (!strcmp(name, "youtube"))  g_screen = SCREEN_YOUTUBE;
-    else if (!strcmp(name, "iptv"))     g_screen = SCREEN_IPTV;
+    if      (!strcmp(name, "home"))     { g_screen = SCREEN_HOME; }
+    else if (!strcmp(name, "youtube"))  { g_screen = SCREEN_YOUTUBE; }
+    else if (!strcmp(name, "iptv"))     { ui_iptv_enter(); g_screen = SCREEN_IPTV; }
     else if (!strcmp(name, "settings")) { ui_settings_enter(); g_screen = SCREEN_SETTINGS; }
 }
 
@@ -91,7 +92,9 @@ void ui_home_key(const char *key) {
         g_focused = (g_focused - 1 + N_TILES) % N_TILES;
     } else if (!strcmp(key, "ok")) {
         if (TILES[g_focused].dest != SCREEN_HOME)
-            g_screen = TILES[g_focused].dest;
+            navigate(TILES[g_focused].dest == SCREEN_IPTV     ? "iptv"     :
+                     TILES[g_focused].dest == SCREEN_YOUTUBE  ? "youtube"  :
+                     TILES[g_focused].dest == SCREEN_SETTINGS ? "settings" : "home");
     } else if (!strcmp(key, "back")) {
         mpv_core_stop();
     } else if (!strcmp(key, "play")) {

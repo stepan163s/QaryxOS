@@ -159,6 +159,24 @@ static void process_frames(WsClient *c) {
             /* Close frame */
             close_client(c);
             return;
+        } else if (opcode == 0x9) {
+            /* Ping frame — respond with Pong (opcode 0xA), same payload */
+            uint64_t copy = plen < 125 ? plen : 125;
+            uint8_t  payload[125];
+            if (masked) {
+                uint8_t mask[4];
+                memcpy(mask, buf + hlen - 4, 4);
+                for (uint64_t i = 0; i < copy; i++)
+                    payload[i] = buf[hlen + i] ^ mask[i & 3];
+            } else {
+                memcpy(payload, buf + hlen, copy);
+            }
+            uint8_t pong_hdr[2] = { 0x8A, (uint8_t)copy };
+            struct iovec iov[2] = {
+                { .iov_base = pong_hdr, .iov_len = 2 },
+                { .iov_base = payload,  .iov_len = (size_t)copy },
+            };
+            writev(c->fd, iov, copy > 0 ? 2 : 1);
         } else if (opcode == 0x1 || opcode == 0x2) {
             /* Text / binary frame */
             uint8_t payload[4096];
@@ -243,7 +261,13 @@ int ws_accept(void) {
 
     set_nonblock(fd);
     int one = 1;
-    setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
+    setsockopt(fd, IPPROTO_TCP, TCP_NODELAY,   &one, sizeof(one));
+    /* TCP keepalive: detect dead clients within ~40s */
+    setsockopt(fd, SOL_SOCKET,  SO_KEEPALIVE,  &one, sizeof(one));
+    int keepidle = 20, keepintvl = 5, keepcnt = 4;
+    setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE,  &keepidle,  sizeof(keepidle));
+    setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &keepintvl, sizeof(keepintvl));
+    setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT,   &keepcnt,   sizeof(keepcnt));
 
     c->fd    = fd;
     c->state = CS_HANDSHAKE;

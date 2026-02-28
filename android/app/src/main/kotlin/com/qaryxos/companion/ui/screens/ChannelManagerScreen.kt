@@ -178,6 +178,7 @@ private fun IptvPlaylistsTab() {
                 ChannelItem(
                     name     = pl.name,
                     subtitle = "${pl.channelCount} channels  •  ${pl.url}",
+                    onOpen   = { scope.launch { WsClient.navigate("iptv") } },
                     onDelete = {
                         scope.launch {
                             WsClient.playlistDel(pl.id)
@@ -198,13 +199,16 @@ private fun IptvPlaylistsTab() {
 }
 
 @Composable
-private fun ChannelItem(name: String, subtitle: String, onDelete: () -> Unit) {
+private fun ChannelItem(name: String, subtitle: String, onOpen: () -> Unit, onDelete: () -> Unit) {
     Card(Modifier.fillMaxWidth()) {
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(name, style = MaterialTheme.typography.bodyLarge)
                 Text(subtitle, style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+            }
+            IconButton(onClick = onOpen) {
+                Icon(Icons.Default.PlayArrow, "Open on TV", tint = MaterialTheme.colorScheme.primary)
             }
             IconButton(onClick = onDelete) {
                 Icon(Icons.Default.Delete, "Remove", tint = MaterialTheme.colorScheme.error)
