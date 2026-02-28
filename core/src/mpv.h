@@ -27,6 +27,10 @@ void mpv_core_handle_events(void);
 /* Returns 1 if a new frame is available and should be rendered. */
 int  mpv_core_wants_render(void);
 
+/* Returns 1 if a file is loaded (playing or paused). Updated via mpv events —
+   never blocks. Use this in the render loop instead of mpv_core_get_status(). */
+int  mpv_core_is_video_active(void);
+
 /* Render mpv video into the current GL framebuffer.
    Call before drawing UI overlay. */
 void mpv_core_render(int w, int h);

@@ -7,6 +7,7 @@
 static mpv_handle          *g_mpv    = NULL;
 static mpv_render_context  *g_mpv_gl = NULL;
 static atomic_int           g_wants_render = 0;
+static atomic_int           g_video_active = 0;  /* 1 when file loaded (playing or paused) */
 
 static void on_mpv_render_update(void *ctx) {
     (void)ctx;
@@ -87,11 +88,27 @@ void mpv_core_handle_events(void) {
     if (!g_mpv) return;
     mpv_event *ev;
     while ((ev = mpv_wait_event(g_mpv, 0)) && ev->event_id != MPV_EVENT_NONE) {
-        if (ev->event_id == MPV_EVENT_LOG_MESSAGE) {
-            mpv_event_log_message *msg = ev->data;
-            fprintf(stderr, "mpv [%s]: %s", msg->level, msg->text);
+        switch (ev->event_id) {
+            case MPV_EVENT_START_FILE:
+                atomic_store(&g_video_active, 1);
+                break;
+            case MPV_EVENT_END_FILE:
+            case MPV_EVENT_IDLE:
+                atomic_store(&g_video_active, 0);
+                atomic_store(&g_wants_render, 0);
+                break;
+            case MPV_EVENT_LOG_MESSAGE: {
+                mpv_event_log_message *msg = ev->data;
+                fprintf(stderr, "mpv [%s]: %s", msg->level, msg->text);
+                break;
+            }
+            default: break;
         }
     }
+}
+
+int mpv_core_is_video_active(void) {
+    return atomic_load(&g_video_active);
 }
 
 int mpv_core_wants_render(void) {

@@ -233,25 +233,29 @@ static void push_status(void) {
 static int g_video_frame_ready = 0;
 
 static void render_frame(void) {
-    MpvStatus st = mpv_core_get_status();
-    int video_active = (!strcmp(st.state, "playing") || !strcmp(st.state, "paused"));
-    int wants = mpv_core_wants_render();
+    /* mpv_core_is_video_active() is lock-free (atomic read) — never blocks.
+       Do NOT call mpv_core_get_status() here: mpv_get_property() can block
+       when mpv is busy (live-stream network stall) and would freeze the loop. */
+    int video_active = mpv_core_is_video_active();
+    int wants        = mpv_core_wants_render();
+    int did_render   = 0;
 
     if (video_active) {
         if (wants) {
-            /* New decoded frame available — render it */
+            /* New decoded frame ready — render it into the back buffer */
             mpv_core_render(g_cfg.screen_w, g_cfg.screen_h);
             g_video_frame_ready = 1;
+            did_render = 1;
         } else if (!g_video_frame_ready) {
-            /* Buffering: no frame yet, show black */
-            render_begin_frame();
+            /* Buffering: stream loaded but first frame not yet decoded */
+            render_begin_frame();   /* clear to background */
+            did_render = 1;
         }
-        /* wants==0 && g_video_frame_ready: paused with last frame already
-           in the EGL back buffer — skip render, just swap below */
-        /* No UI overlay during video */
+        /* wants==0 && g_video_frame_ready: last frame still in the front
+           buffer (DRM keeps it on screen) — skip swap to avoid stale content */
     } else {
-        /* Idle / error: reset and draw UI.
-           render_begin_frame() also restores GL state polluted by mpv. */
+        /* Idle/stopped: draw the UI.
+           render_begin_frame() also resets GL state polluted by mpv. */
         g_video_frame_ready = 0;
         render_begin_frame();
 
@@ -262,9 +266,14 @@ static void render_frame(void) {
             case SCREEN_SETTINGS: ui_settings_draw(); break;
             default: break;
         }
+        did_render = 1;
     }
 
-    egl_swap(&g_egl, &g_drm);
+    /* Only swap when we actually rendered something to the back buffer.
+       Calling egl_swap without rendering cycles GBM BOs unnecessarily and
+       can produce gray frames for live streams with long inter-frame gaps. */
+    if (did_render)
+        egl_swap(&g_egl, &g_drm);
 }
 
 /* ── Signal handler ────────────────────────────────────────────────────────── */
