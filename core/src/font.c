@@ -83,12 +83,12 @@ int font_init(const char *ttf_path) {
         if (bake_size(i, g_sizes[i]) < 0) return -1;
     }
 
-    /* Upload to GL as R8 texture (GL_LUMINANCE is deprecated in ES 3.0+) */
+    /* Upload to GL as alpha texture (compatible with OpenGL ES 3.1) */
     glGenTextures(1, &g_atlas_tex);
     glBindTexture(GL_TEXTURE_2D, g_atlas_tex);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, ATLAS_W, ATLAS_H, 0,
-                 GL_RED, GL_UNSIGNED_BYTE, g_atlas_buf);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_ALPHA, ATLAS_W, ATLAS_H, 0,
+                 GL_ALPHA, GL_UNSIGNED_BYTE, g_atlas_buf);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glBindTexture(GL_TEXTURE_2D, 0);
