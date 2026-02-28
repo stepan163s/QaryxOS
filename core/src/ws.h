@@ -1,5 +1,6 @@
 #pragma once
 #include <stddef.h>
+#include <stdint.h>
 
 /* Maximum simultaneous WebSocket clients */
 #define WS_MAX_CLIENTS 8

@@ -82,7 +82,7 @@ static int parse_m3u(const char *content, const char *pl_id,
                     if (vlen >= (int)sizeof(val)) vlen = sizeof(val)-1;
                     memcpy(val, attr, vlen);
 
-                    if      (!strcasecmp(key,"tvg-id"))      strncpy(cur.tvg_id[0]?cur.tvg_id:cur.id, val, sizeof(cur.id)-1);
+                    if      (!strcasecmp(key,"tvg-id"))      strncpy(cur.id, val, sizeof(cur.id)-1);
                     else if (!strcasecmp(key,"group-title")) strncpy(cur.group, val, sizeof(cur.group)-1);
                     else if (!strcasecmp(key,"tvg-logo"))    strncpy(cur.logo,  val, sizeof(cur.logo)-1);
 
