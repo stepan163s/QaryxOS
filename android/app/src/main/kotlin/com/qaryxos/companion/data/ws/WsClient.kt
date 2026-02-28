@@ -4,6 +4,7 @@ import android.content.Context
 import com.google.gson.GsonBuilder
 import com.google.gson.JsonParser
 import com.qaryxos.companion.data.models.HistoryEntry
+import com.qaryxos.companion.data.models.IptvChannel
 import com.qaryxos.companion.data.models.IptvPlaylist
 import com.qaryxos.companion.data.models.ServicesMsg
 import com.qaryxos.companion.data.models.StatusMsg
@@ -82,6 +83,11 @@ object WsClient {
     private val _playlistsFlow = MutableSharedFlow<List<IptvPlaylist>>(extraBufferCapacity = 1)
     val playlistsFlow: SharedFlow<List<IptvPlaylist>> = _playlistsFlow.asSharedFlow()
 
+    /** Emits (playlistId, channels) whenever iptv_channels response arrives.
+     *  playlistId may be empty if the request had no filter. */
+    private val _iptvChannelsFlow = MutableSharedFlow<Pair<String, List<IptvChannel>>>(extraBufferCapacity = 1)
+    val iptvChannelsFlow: SharedFlow<Pair<String, List<IptvChannel>>> = _iptvChannelsFlow.asSharedFlow()
+
     private val _errorFlow = MutableSharedFlow<String>(extraBufferCapacity = 4)
     val errorFlow: SharedFlow<String> = _errorFlow.asSharedFlow()
 
@@ -156,6 +162,13 @@ object WsClient {
     fun playlistAdd(url: String, name: String)   = send(mapOf("cmd" to "playlist_add", "url" to url, "name" to name))
     fun playlistDel(id: String)                  = send(mapOf("cmd" to "playlist_del", "id" to id))
 
+    /** Request up to 500 channels for [playlistId] from the server. */
+    fun iptvChannelsGet(playlistId: String)      = send(mapOf("cmd" to "iptv_channels_get", "playlist_id" to playlistId))
+
+    /** Import channels parsed locally from an M3U file (no HTTP download on server). */
+    fun playlistImport(name: String, channels: List<Map<String, String>>) =
+        send(mapOf("cmd" to "playlist_import", "name" to name, "channels" to channels))
+
     // Services
     fun serviceGet()                             = send(mapOf("cmd" to "service_get"))
     fun serviceSet(name: String, enabled: Boolean) =
@@ -192,6 +205,14 @@ object WsClient {
                             ?.map { gson.fromJson(it, IptvPlaylist::class.java) }
                             ?: emptyList()
                         _playlistsFlow.tryEmit(list)
+                    }
+
+                    "iptv_channels" -> {
+                        val plId = obj.get("playlist_id")?.asString ?: ""
+                        val list = obj.getAsJsonArray("channels")
+                            ?.map { gson.fromJson(it, IptvChannel::class.java) }
+                            ?: emptyList()
+                        _iptvChannelsFlow.tryEmit(plId to list)
                     }
 
                     "services" ->

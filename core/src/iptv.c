@@ -296,6 +296,46 @@ int iptv_refresh_playlist(const char *id) {
     return count;
 }
 
+int iptv_import_channels(const char *name, void *channels_cjson_array) {
+    if (g_pl_count >= IPTV_MAX_PLAYLISTS) return -1;
+    cJSON *arr = (cJSON *)channels_cjson_array;
+    if (!arr) return -1;
+
+    IptvPlaylist *pl = &g_playlists[g_pl_count];
+    unsigned h = 5381;
+    for (const char *s = name; *s; s++) h = ((h<<5)+h)^(unsigned char)*s;
+    snprintf(pl->id, sizeof(pl->id), "pl_%08x_%lx", h, (unsigned long)time(NULL));
+    strncpy(pl->name, name, sizeof(pl->name)-1);
+    pl->url[0]        = '\0';   /* file-based: no URL */
+    pl->updated_at    = time(NULL);
+    pl->channel_count = 0;
+    g_pl_count++;
+
+    int n = cJSON_GetArraySize(arr);
+    int added = 0;
+    for (int i = 0; i < n && g_ch_count < IPTV_MAX_CHANNELS; i++) {
+        cJSON *o = cJSON_GetArrayItem(arr, i);
+        IptvChannel *c = &g_channels[g_ch_count];
+        memset(c, 0, sizeof(*c));
+        strncpy(c->name,        cJSON_GetString(o,"name",""),   sizeof(c->name)-1);
+        strncpy(c->url,         cJSON_GetString(o,"url",""),    sizeof(c->url)-1);
+        strncpy(c->group,       cJSON_GetString(o,"group",""),  sizeof(c->group)-1);
+        strncpy(c->logo,        cJSON_GetString(o,"logo",""),   sizeof(c->logo)-1);
+        strncpy(c->playlist_id, pl->id,                         sizeof(c->playlist_id)-1);
+        /* Generate stable id */
+        unsigned ch_h = 5381;
+        for (const char *s = c->name; *s; s++) ch_h = ((ch_h<<5)+ch_h)^(unsigned char)*s;
+        snprintf(c->id, sizeof(c->id), "%s_%08x", pl->id, ch_h ^ (unsigned)i);
+        g_ch_count++;
+        added++;
+    }
+
+    pl->channel_count = added;
+    save_channel_cache(pl->id, g_channels + g_ch_count - added, added);
+    iptv_save_playlists();
+    return added;
+}
+
 IptvPlaylist *iptv_get_playlists(int *n) { *n = g_pl_count; return g_playlists; }
 
 IptvChannel *iptv_get_channels(const char *pl_id, const char *group, int *n) {

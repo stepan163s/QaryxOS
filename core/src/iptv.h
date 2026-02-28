@@ -38,6 +38,11 @@ int  iptv_remove_playlist(const char *id);
 /* Refresh a single playlist from network. Returns channel count or -1. */
 int  iptv_refresh_playlist(const char *id);
 
+/* Import channels from a pre-parsed JSON array (file-upload path).
+   channels_json: cJSON* array of {"name":"...","url":"...","group":"..."}.
+   Returns channel count or -1. */
+int  iptv_import_channels(const char *name, void *channels_cjson_array);
+
 /* Queries */
 IptvPlaylist *iptv_get_playlists(int *count_out);
 IptvChannel  *iptv_get_channels(const char *playlist_id, const char *group,

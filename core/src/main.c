@@ -170,6 +170,54 @@ static void ws_dispatch_cmd(const char *json) {
         iptv_add_playlist(url, name);  /* blocking — TODO: thread */
     } else if (!strcmp(cmd, "playlist_del")) {
         iptv_remove_playlist(cJSON_GetString(j, "id", ""));
+
+    } else if (!strcmp(cmd, "iptv_channels_get")) {
+        /* Return up to 500 channels for a playlist */
+        const char *pl_id = cJSON_GetString(j, "playlist_id", "");
+        int n; IptvChannel *ch = iptv_get_channels(pl_id[0] ? pl_id : NULL, NULL, &n);
+        cJSON *resp = cJSON_CreateObject();
+        cJSON_AddStringToObject(resp, "type", "iptv_channels");
+        if (pl_id[0]) cJSON_AddStringToObject(resp, "playlist_id", pl_id);
+        cJSON *arr = cJSON_CreateArray();
+        int lim = n > 500 ? 500 : n;
+        for (int i = 0; i < lim; i++) {
+            cJSON *o = cJSON_CreateObject();
+            cJSON_AddStringToObject(o, "id",    ch[i].id);
+            cJSON_AddStringToObject(o, "name",  ch[i].name);
+            cJSON_AddStringToObject(o, "url",   ch[i].url);
+            cJSON_AddStringToObject(o, "group", ch[i].group);
+            cJSON_AddItemToArray(arr, o);
+        }
+        cJSON_AddItemToObject(resp, "channels", arr);
+        cJSON_AddNumberToObject(resp, "total", n);
+        char *s = cJSON_Print(resp); cJSON_Delete(resp);
+        ws_broadcast(s); free(s);
+
+    } else if (!strcmp(cmd, "playlist_import")) {
+        /* Channels pre-parsed on Android (file-picker path, no HTTP download) */
+        const char *name = cJSON_GetString(j, "name", "Imported");
+        cJSON *channels = cJSON_GetObjectItem(j, "channels");
+        if (channels && cJSON_IsArray(channels)) {
+            int count = iptv_import_channels(name, channels);
+            /* Broadcast updated playlist list */
+            int pn; IptvPlaylist *pl = iptv_get_playlists(&pn);
+            cJSON *resp = cJSON_CreateObject();
+            cJSON_AddStringToObject(resp, "type", "playlists");
+            cJSON *parr = cJSON_CreateArray();
+            for (int i = 0; i < pn; i++) {
+                cJSON *o = cJSON_CreateObject();
+                cJSON_AddStringToObject(o, "id",            pl[i].id);
+                cJSON_AddStringToObject(o, "name",          pl[i].name);
+                cJSON_AddStringToObject(o, "url",           pl[i].url);
+                cJSON_AddNumberToObject(o, "channel_count", pl[i].channel_count);
+                cJSON_AddItemToArray(parr, o);
+            }
+            cJSON_AddItemToObject(resp, "playlists", parr);
+            char *s = cJSON_Print(resp); cJSON_Delete(resp);
+            ws_broadcast(s); free(s);
+            fprintf(stderr, "iptv: imported %d channels as '%s'\n", count, name);
+        }
+
     } else if (!strcmp(cmd, "service_get")) {
         const ServicesState *sv = services_get(1);
         cJSON *resp = cJSON_CreateObject();

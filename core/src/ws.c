@@ -18,10 +18,13 @@
 /* ── Client state ─────────────────────────────────────────────────────────── */
 typedef enum { CS_HANDSHAKE, CS_OPEN, CS_CLOSED } ClientState;
 
+/* 128 KB — enough for M3U playlist imports (up to ~1000 channels as JSON) */
+#define WS_RBUF_SIZE (128 * 1024)
+
 typedef struct {
     int         fd;
     ClientState state;
-    char        rbuf[4096];
+    char        rbuf[WS_RBUF_SIZE];
     int         rlen;
 } WsClient;
 
