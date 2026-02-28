@@ -60,19 +60,19 @@ int input_fd(void) {
 
 static const char *keycode_to_name(uint32_t code) {
     switch (code) {
-        case KEY_UP:       return KEY_UP;
-        case KEY_DOWN:     return KEY_DOWN;
-        case KEY_LEFT:     return KEY_LEFT;
-        case KEY_RIGHT:    return KEY_RIGHT;
+        case KEY_UP:       return "up";
+        case KEY_DOWN:     return "down";
+        case KEY_LEFT:     return "left";
+        case KEY_RIGHT:    return "right";
         case KEY_ENTER:
-        case KEY_KPENTER:  return KEY_OK;
+        case KEY_KPENTER:  return "ok";
         case KEY_ESC:
-        case KEY_BACK:     return KEY_BACK;
+        case KEY_BACK:     return "back";
         case KEY_H:
-        case KEY_HOME:     return KEY_HOME;
-        case KEY_PLAYPAUSE:return KEY_PLAY;
-        case KEY_VOLUMEUP: return KEY_VOLUP;
-        case KEY_VOLUMEDOWN:return KEY_VOLDOWN;
+        case KEY_HOME:     return "home";
+        case KEY_PLAYPAUSE:return "play";
+        case KEY_VOLUMEUP: return "vol_up";
+        case KEY_VOLUMEDOWN:return "vol_down";
         default:           return NULL;
     }
 }
