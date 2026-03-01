@@ -181,20 +181,23 @@ static void process_frames(WsClient *c) {
             };
             writev(c->fd, iov, copy > 0 ? 2 : 1);
         } else if (opcode == 0x1 || opcode == 0x2) {
-            /* Text / binary frame */
-            uint8_t payload[4096];
-            uint64_t copy = plen < sizeof(payload)-1 ? plen : sizeof(payload)-1;
-
+            /* Text / binary frame — unmask in-place within rbuf, then dispatch.
+             * The rbuf is WS_RBUF_SIZE (128 KB), large enough for any single
+             * frame we accept.  We must NOT copy into a small stack buffer or
+             * large messages (e.g. playlist_import with 500 channels) get
+             * silently truncated and the JSON parse fails. */
             if (masked) {
                 uint8_t mask[4];
                 memcpy(mask, buf + hlen - 4, 4);
-                for (uint64_t i = 0; i < copy; i++)
-                    payload[i] = buf[hlen + i] ^ mask[i & 3];
-            } else {
-                memcpy(payload, buf + hlen, copy);
+                for (uint64_t i = 0; i < plen; i++)
+                    buf[hlen + i] ^= mask[i & 3];
             }
-            payload[copy] = '\0';
-            if (g_handler) g_handler((char *)payload);
+            /* buf[total] == buf[hlen+plen] is within rbuf bounds (total <= len
+             * <= WS_RBUF_SIZE-1).  Save, null-terminate, dispatch, restore. */
+            uint8_t saved = buf[hlen + plen];
+            buf[hlen + plen] = '\0';
+            if (g_handler) g_handler((char *)(buf + hlen));
+            buf[hlen + plen] = saved;
         }
         /* Shift buffer */
         memmove(buf, buf + total, len - total);
