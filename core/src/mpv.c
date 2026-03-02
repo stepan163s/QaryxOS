@@ -196,6 +196,15 @@ void mpv_core_pause_toggle(void) {
 
 void mpv_core_stop(void) {
     if (!g_mpv) return;
+    /* Clear immediately so the UI snaps back to the current screen without
+     * waiting for END_FILE (which can take seconds when mpv tears down a
+     * live-stream network connection). END_FILE will still fire later and
+     * set g_video_active=0 again — harmless double-write. */
+    atomic_store(&g_video_active, 0);
+    atomic_store(&g_wants_render, 0);
+    g_cached_pos    = 0.0;
+    g_cached_dur    = 0.0;
+    g_cached_paused = 0;
     const char *cmd[] = { "stop", NULL };
     mpv_command_async(g_mpv, 0, cmd);
 }
