@@ -40,6 +40,7 @@ int mpv_core_init(void *(*get_proc_addr)(void *ctx, const char *name), void *ctx
     mpv_set_option_string(g_mpv, "vd-lavc-dr",    "yes");   /* skip extra buffer copy */
     mpv_set_option_string(g_mpv, "vo",            "libmpv");
     mpv_set_option_string(g_mpv, "ao",            "alsa");
+    mpv_set_option_string(g_mpv, "audio-device",  "alsa/default"); /* explicit: HDMI = ALSA default on embedded boards */
     mpv_set_option_string(g_mpv, "video-sync",    "audio"); /* audio master, lighter on CPU */
 
     mpv_set_option_string(g_mpv, "input-terminal", "no");
