@@ -65,6 +65,7 @@ typedef struct {
 static Pending g_pending[MAX_PENDING];
 static int     g_pending_n = 0;
 static char    g_proxy[256] = "";
+static char    g_default_quality[16] = "720";
 
 void ytdlp_set_proxy(const char *proxy_url) {
     if (proxy_url && proxy_url[0])
@@ -72,6 +73,11 @@ void ytdlp_set_proxy(const char *proxy_url) {
     else
         g_proxy[0] = '\0';
     fprintf(stderr, "ytdlp: proxy=%s\n", g_proxy[0] ? g_proxy : "(none)");
+}
+
+void ytdlp_set_default_quality(const char *height) {
+    if (height && height[0])
+        strncpy(g_default_quality, height, sizeof(g_default_quality)-1);
 }
 
 static Pending *find_pending(int fd) {
@@ -99,10 +105,22 @@ void ytdlp_resolve(const char *url, const char *quality,
         return;
     }
 
-    char fmt[128];
+    /* Format priority for weak ARM hardware:
+     * 1. H264 (avc) — best HW decode support on all Rockchip/Allwinner/etc.
+     * 2. HEVC (hev/hvc) — HW decoded on most modern ARM SoCs
+     * 3. VP9 — HW decoded on RK3566+, skip on weaker chips
+     * AV1 intentionally excluded: no HW decoder on most ARM SoCs, kills CPU.
+     * Audio: prefer AAC (mp4a) for lower decode overhead; opus fallback. */
+    char fmt[512];
+    const char *h = quality ? quality : g_default_quality;
     snprintf(fmt, sizeof(fmt),
-             "bestvideo[height<=%s]+bestaudio/bestvideo+bestaudio/best",
-             quality ? quality : "1080");
+        "bestvideo[height<=%s][vcodec^=avc]+bestaudio[acodec=mp4a]/"
+        "bestvideo[height<=%s][vcodec^=hev]+bestaudio[acodec=mp4a]/"
+        "bestvideo[height<=%s][vcodec^=hvc]+bestaudio/"
+        "bestvideo[height<=%s][vcodec^=vp9]+bestaudio/"
+        "best[height<=%s][vcodec!*=av01]/"
+        "best[height<=%s]",
+        h, h, h, h, h, h);
 
     int pipefd[2];
     if (pipe2(pipefd, O_CLOEXEC) < 0) { if (cb) cb(NULL, userdata); return; }
@@ -121,14 +139,19 @@ void ytdlp_resolve(const char *url, const char *quality,
         /* Redirect stderr to /dev/null */
         int devnull = open("/dev/null", O_WRONLY);
         if (devnull >= 0) dup2(devnull, STDERR_FILENO);
+        /* android client: skips JS parsing, ~2x faster URL extraction */
         if (g_proxy[0]) {
             execlp(YTDLP_BIN, "yt-dlp",
                    "--no-warnings", "--no-playlist",
+                   "--extractor-args", "youtube:player_client=android,web",
+                   "--socket-timeout", "15",
                    "--proxy", g_proxy,
                    "-f", fmt, "--get-url", url, NULL);
         } else {
             execlp(YTDLP_BIN, "yt-dlp",
                    "--no-warnings", "--no-playlist",
+                   "--extractor-args", "youtube:player_client=android,web",
+                   "--socket-timeout", "15",
                    "-f", fmt, "--get-url", url, NULL);
         }
         _exit(1);
@@ -212,6 +235,8 @@ int ytdlp_get_channel_videos(const char *channel_url, int max, YoutubeVideo *out
         if (devnull >= 0) dup2(devnull, STDERR_FILENO);
         execlp(YTDLP_BIN, "yt-dlp",
                "--no-warnings", "--flat-playlist",
+               "--extractor-args", "youtube:player_client=android,web",
+               "--socket-timeout", "15",
                "--playlist-end", max_str,
                "--dump-json", channel_url, NULL);
         _exit(1);

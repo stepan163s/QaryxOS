@@ -12,6 +12,7 @@ static void set_defaults(Config *cfg) {
     cfg->volume   = 80;
     cfg->screen_w = 1920;
     cfg->screen_h = 1080;
+    strcpy(cfg->ytdlp_quality, "720");
 }
 
 void config_load(Config *cfg) {
@@ -43,7 +44,8 @@ void config_load(Config *cfg) {
     const char *s;
     if ((s = cJSON_GetString(j, "data_dir",    NULL))) strncpy(cfg->data_dir,    s, sizeof(cfg->data_dir)-1);
     if ((s = cJSON_GetString(j, "font_path",   NULL))) strncpy(cfg->font_path,   s, sizeof(cfg->font_path)-1);
-    if ((s = cJSON_GetString(j, "ytdlp_proxy", NULL))) strncpy(cfg->ytdlp_proxy, s, sizeof(cfg->ytdlp_proxy)-1);
+    if ((s = cJSON_GetString(j, "ytdlp_proxy",   NULL))) strncpy(cfg->ytdlp_proxy,   s, sizeof(cfg->ytdlp_proxy)-1);
+    if ((s = cJSON_GetString(j, "ytdlp_quality", NULL))) strncpy(cfg->ytdlp_quality, s, sizeof(cfg->ytdlp_quality)-1);
 
     cJSON_Delete(j);
 }

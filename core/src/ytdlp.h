@@ -11,6 +11,10 @@
    Pass NULL or "" to disable. */
 void ytdlp_set_proxy(const char *proxy_url);
 
+/* Set default max height used when ytdlp_resolve() is called with quality=NULL.
+   E.g. "720", "1080". Default is "720". */
+void ytdlp_set_default_quality(const char *height);
+
 typedef struct {
     char    id[64];
     char    title[256];

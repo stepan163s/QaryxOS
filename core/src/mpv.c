@@ -34,20 +34,24 @@ int mpv_core_init(void *(*get_proc_addr)(void *ctx, const char *name), void *ctx
 
     mpv_request_log_messages(g_mpv, "warn");
 
-    /* Hardware decode */
-    mpv_set_option_string(g_mpv, "hwdec",        "rkmpp");
-    mpv_set_option_string(g_mpv, "hwdec-codecs",  "h264,hevc,vp9,av1");
+    /* Hardware decode — av1 excluded: no HW decoder on most ARM SoCs */
+    mpv_set_option_string(g_mpv, "hwdec",         "auto-safe");
+    mpv_set_option_string(g_mpv, "hwdec-codecs",  "h264,hevc,vp9");
+    mpv_set_option_string(g_mpv, "vd-lavc-dr",    "yes");   /* skip extra buffer copy */
     mpv_set_option_string(g_mpv, "vo",            "libmpv");
     mpv_set_option_string(g_mpv, "ao",            "alsa");
+    mpv_set_option_string(g_mpv, "video-sync",    "audio"); /* audio master, lighter on CPU */
 
     mpv_set_option_string(g_mpv, "input-terminal", "no");
     mpv_set_option_string(g_mpv, "idle",            "yes");
     mpv_set_option_string(g_mpv, "keep-open",       "yes");
 
-    /* Cache for VOD */
-    mpv_set_option_string(g_mpv, "cache",            "yes");
-    mpv_set_option_string(g_mpv, "cache-secs",       "30");
-    mpv_set_option_string(g_mpv, "demuxer-max-bytes","50MiB");
+    /* Cache: small buffer → playback starts fast, not after 30s wait */
+    mpv_set_option_string(g_mpv, "cache",              "yes");
+    mpv_set_option_string(g_mpv, "cache-secs",         "8");
+    mpv_set_option_string(g_mpv, "cache-pause-initial","no");
+    mpv_set_option_string(g_mpv, "cache-pause-wait",   "1");
+    mpv_set_option_string(g_mpv, "demuxer-max-bytes",  "15MiB");
 
     mpv_set_option_string(g_mpv, "profile-restore", "copy");
 
@@ -175,7 +179,7 @@ void mpv_core_load(const char *url, const char *profile) {
         } else {
             mpv_set_property_string(g_mpv, "cache",            "yes");
             mpv_set_property_string(g_mpv, "cache-pause",      "yes");
-            mpv_set_property_string(g_mpv, "demuxer-max-bytes","50MiB");
+            mpv_set_property_string(g_mpv, "demuxer-max-bytes","15MiB");
         }
     }
 

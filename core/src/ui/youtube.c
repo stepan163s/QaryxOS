@@ -134,7 +134,7 @@ void ui_youtube_key(const char *key) {
         g_pending_play.video_idx = g_focused;
         strncpy(g_pending_play.url, v->url, sizeof(g_pending_play.url)-1);
         g_resolving = 1;
-        ytdlp_resolve(v->url, "1080", on_resolved, &g_pending_play);
+        ytdlp_resolve(v->url, NULL, on_resolved, &g_pending_play);
     } else if (!strcmp(key, "back") || !strcmp(key, "home")) {
         navigate("home");
     }

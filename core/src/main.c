@@ -94,7 +94,7 @@ static void ws_dispatch_cmd(const char *json) {
             fprintf(stderr, "play: youtube resolve -> %s\n", url);
             static char g_play_orig_url[512];
             strncpy(g_play_orig_url, url, sizeof(g_play_orig_url)-1);
-            ytdlp_resolve(url, "1080", ws_play_cb, g_play_orig_url);
+            ytdlp_resolve(url, NULL, ws_play_cb, g_play_orig_url);
         } else {
             const char *profile = (!strcmp(type,"iptv")) ? "live" : NULL;
             fprintf(stderr, "play: direct -> %s (profile=%s)\n", url, profile ? profile : "none");
@@ -373,6 +373,7 @@ int main(void) {
     /* Config */
     config_load(&g_cfg);
     ytdlp_set_proxy(g_cfg.ytdlp_proxy);
+    ytdlp_set_default_quality(g_cfg.ytdlp_quality[0] ? g_cfg.ytdlp_quality : "720");
 
     /* If proxy configured, set env vars so libcurl (used by libmpv) picks it up */
     if (g_cfg.ytdlp_proxy[0]) {
