@@ -42,6 +42,16 @@ int mpv_core_init(void *(*get_proc_addr)(void *ctx, const char *name), void *ctx
     mpv_set_option_string(g_mpv, "ao",            "alsa");
     mpv_set_option_string(g_mpv, "audio-device",  "alsa/default"); /* explicit: HDMI = ALSA default on embedded boards */
     mpv_set_option_string(g_mpv, "video-sync",    "audio"); /* audio master, lighter on CPU */
+    mpv_set_option_string(g_mpv, "framedrop",     "vo");   /* drop frames when CPU can't keep up */
+
+    /* Fast bilinear scaling — lanczos is expensive on weak ARM */
+    mpv_set_option_string(g_mpv, "scale",                 "bilinear");
+    mpv_set_option_string(g_mpv, "dscale",                "bilinear");
+    mpv_set_option_string(g_mpv, "correct-downscaling",   "no");
+    mpv_set_option_string(g_mpv, "linear-downscaling",    "no");
+    mpv_set_option_string(g_mpv, "interpolation",         "no");
+
+    mpv_set_option_string(g_mpv, "audio-channels",        "stereo"); /* no surround upmix */
 
     mpv_set_option_string(g_mpv, "input-terminal", "no");
     mpv_set_option_string(g_mpv, "idle",            "yes");
