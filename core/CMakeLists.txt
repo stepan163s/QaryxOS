@@ -41,6 +41,7 @@ set(SOURCES
     src/history.c
     src/config.c
     src/http_dl.c
+    src/thumbcache.c
     src/services.c
     src/ui/home.c
     src/ui/youtube.c
@@ -75,6 +76,7 @@ target_link_libraries(qaryx PRIVATE
     ${UDEV_LIBRARIES}
     ${CURL_LIBRARIES}
     m
+    pthread
 )
 
 target_compile_options(qaryx PRIVATE

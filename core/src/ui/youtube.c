@@ -5,6 +5,7 @@
 #include "../ytdlp.h"
 #include "../mpv.h"
 #include "../history.h"
+#include "../thumbcache.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -85,8 +86,13 @@ void ui_youtube_draw(void) {
         render_rect(x, y, TILE_W, TILE_H, sel ? COL_TILE_HL : COL_TILE);
         if (sel) render_rect_outline(x, y, TILE_W, TILE_H, COL_ACCENT, 2);
 
-        /* Thumbnail placeholder */
-        render_rect(x+6, y+6, TILE_W-12, 110, rgba(40,40,40,255));
+        /* Thumbnail */
+        GLuint thumb = g_videos[i].thumbnail[0]
+                     ? thumbcache_get(g_videos[i].thumbnail) : 0;
+        if (thumb)
+            render_texture(x+6, y+6, TILE_W-12, 110, thumb, 1.0f);
+        else
+            render_rect(x+6, y+6, TILE_W-12, 110, rgba(40,40,40,255));
 
         /* Title — max 2 lines */
         char line1[48] = {0}, line2[48] = {0};

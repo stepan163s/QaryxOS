@@ -25,6 +25,7 @@
 #include "ytdlp.h"
 #include "iptv.h"
 #include "history.h"
+#include "thumbcache.h"
 #include "config.h"
 #include "../third_party/cjson.h"
 
@@ -305,6 +306,7 @@ static void render_frame(void) {
         /* Idle/stopped: draw the UI.
            render_begin_frame() also resets GL state polluted by mpv. */
         g_video_frame_ready = 0;
+        thumbcache_tick(); /* upload any decoded thumbnails to GL */
         render_begin_frame();
 
         switch (g_screen) {
@@ -393,6 +395,7 @@ int main(void) {
         fprintf(stderr, "qaryx: render init failed, running headless\n");
     } else {
         font_init(g_cfg.font_path);
+        thumbcache_init(g_cfg.data_dir);
         if (mpv_core_init(egl_get_proc_address, NULL) < 0)
             fprintf(stderr, "qaryx: mpv init failed\n");
         else
