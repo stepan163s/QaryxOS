@@ -15,8 +15,12 @@ typedef struct {
 
 /* Initialise libmpv handle + OpenGL render context.
    get_proc_addr: EGL proc address callback (pass egl_get_proc_address).
+   drm_fd, crtc_id: DRM device fd and CRTC — enables DRM PRIME zero-copy
+   import path (GPU receives decoded frames directly without CPU copy).
+   Pass drm_fd=-1 to skip DRM PRIME (fallback to standard GL texture copy).
    Returns 0 on success. */
-int  mpv_core_init(void *(*get_proc_addr)(void *ctx, const char *name), void *ctx);
+int  mpv_core_init(void *(*get_proc_addr)(void *ctx, const char *name), void *ctx,
+                   int drm_fd, uint32_t crtc_id);
 
 /* Returns the mpv wakeup fd — add to epoll with EPOLLIN.
    When readable, call mpv_core_handle_events(). */

@@ -394,7 +394,8 @@ void *render_thread_fn(void *arg) {
     font_init(g_cfg.font_path);
     thumbcache_init(g_cfg.data_dir);
 
-    if (mpv_core_init(egl_get_proc_address, NULL) < 0)
+    /* Pass DRM fd + crtc_id to enable DRM PRIME zero-copy video import */
+    if (mpv_core_init(egl_get_proc_address, NULL, g_drm.fd, g_drm.crtc_id) < 0)
         fprintf(stderr, "render_thread: mpv init failed\n");
     else
         mpv_core_set_volume(g_cfg.volume);

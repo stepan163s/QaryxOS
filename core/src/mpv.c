@@ -41,7 +41,8 @@ void mpv_core_set_render_cond(pthread_mutex_t *mu, pthread_cond_t *cond) {
     g_render_cond = cond;
 }
 
-int mpv_core_init(void *(*get_proc_addr)(void *ctx, const char *name), void *ctx) {
+int mpv_core_init(void *(*get_proc_addr)(void *ctx, const char *name), void *ctx,
+                  int drm_fd, uint32_t crtc_id) {
     g_mpv = mpv_create();
     if (!g_mpv) {
         fprintf(stderr, "mpv: mpv_create failed\n");
@@ -50,8 +51,10 @@ int mpv_core_init(void *(*get_proc_addr)(void *ctx, const char *name), void *ctx
 
     mpv_request_log_messages(g_mpv, "warn");
 
-    /* Hardware decode — av1 excluded: no HW decoder on most ARM SoCs */
-    mpv_set_option_string(g_mpv, "hwdec",         "auto-safe");
+    /* Hardware decode — drm-prime enables zero-copy import via EGL dmabuf.
+     * Falls back to auto-safe if DRM PRIME path is unavailable. */
+    mpv_set_option_string(g_mpv, "hwdec",
+                          drm_fd >= 0 ? "drm-prime" : "auto-safe");
     mpv_set_option_string(g_mpv, "hwdec-codecs",  "h264,hevc,vp9");
     mpv_set_option_string(g_mpv, "vd-lavc-dr",    "yes");   /* skip extra buffer copy */
     mpv_set_option_string(g_mpv, "vo",            "libmpv");
@@ -101,21 +104,52 @@ int mpv_core_init(void *(*get_proc_addr)(void *ctx, const char *name), void *ctx
     mpv_observe_property(g_mpv, 0, "volume",    MPV_FORMAT_DOUBLE);
     mpv_observe_property(g_mpv, 0, "pause",     MPV_FORMAT_FLAG);
 
-    /* OpenGL render context */
+    /* OpenGL render context with optional DRM PRIME zero-copy path.
+     * When drm_fd >= 0, mpv imports decoded frames as EGL images (dmabufs)
+     * directly into GL — no CPU copy, GPU receives raw frame data. */
     mpv_opengl_init_params gl_init = {
         .get_proc_address      = get_proc_addr,
         .get_proc_address_ctx  = ctx,
     };
-    mpv_render_param params[] = {
+
+    /* DRM PRIME params — tells mpv which DRM device/CRTC we're rendering on */
+    mpv_opengl_drm_params_v2 drm_params = {
+        .fd           = drm_fd,
+        .crtc_id      = (int)crtc_id,
+        .connector_id = 0,   /* 0 = don't manage connector */
+        .render_fd    = drm_fd,
+    };
+
+    mpv_render_param params_with_drm[] = {
+        { MPV_RENDER_PARAM_API_TYPE,            MPV_RENDER_API_TYPE_OPENGL },
+        { MPV_RENDER_PARAM_OPENGL_INIT_PARAMS,  &gl_init },
+        { MPV_RENDER_PARAM_ADVANCED_CONTROL,    &(int){1} },
+        { MPV_RENDER_PARAM_DRM_DISPLAY_V2,      &drm_params },
+        { 0 },
+    };
+    mpv_render_param params_no_drm[] = {
         { MPV_RENDER_PARAM_API_TYPE,            MPV_RENDER_API_TYPE_OPENGL },
         { MPV_RENDER_PARAM_OPENGL_INIT_PARAMS,  &gl_init },
         { MPV_RENDER_PARAM_ADVANCED_CONTROL,    &(int){1} },
         { 0 },
     };
+    mpv_render_param *params = (drm_fd >= 0) ? params_with_drm : params_no_drm;
 
     if (mpv_render_context_create(&g_mpv_gl, g_mpv, params) < 0) {
-        fprintf(stderr, "mpv: mpv_render_context_create failed\n");
-        return -1;
+        if (drm_fd >= 0) {
+            /* DRM PRIME init failed (e.g. older mpv or driver missing ext) — retry without */
+            fprintf(stderr, "mpv: DRM PRIME init failed, retrying without zero-copy\n");
+            mpv_set_option_string(g_mpv, "hwdec", "auto-safe");
+            if (mpv_render_context_create(&g_mpv_gl, g_mpv, params_no_drm) < 0) {
+                fprintf(stderr, "mpv: mpv_render_context_create failed\n");
+                return -1;
+            }
+        } else {
+            fprintf(stderr, "mpv: mpv_render_context_create failed\n");
+            return -1;
+        }
+    } else if (drm_fd >= 0) {
+        fprintf(stderr, "mpv: DRM PRIME zero-copy path enabled (no CPU copy for video)\n");
     }
 
     mpv_render_context_set_update_callback(g_mpv_gl, on_mpv_render_update, NULL);
