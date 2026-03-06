@@ -581,6 +581,12 @@ int main(void) {
         }
     }
 
+    /* Wake render thread so it can exit its condvar wait */
+    pthread_mutex_lock(&g_render_mu);
+    g_render_signal = 1;
+    pthread_cond_broadcast(&g_render_cond);
+    pthread_mutex_unlock(&g_render_mu);
+
     /* Cleanup */
     fprintf(stderr, "qaryx: shutting down\n");
     ws_destroy();
