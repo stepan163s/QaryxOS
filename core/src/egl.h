@@ -11,9 +11,13 @@ typedef struct {
     EGLConfig   config;
 } EglState;
 
-/* Initialise EGL on top of the GBM device/surface created by drm_init().
-   Shares the EGL context with libmpv. Returns 0 on success. */
+/* Initialise EGL: create display, context, surface. Does NOT call eglMakeCurrent.
+   Call egl_make_current() on whichever thread will own the GL context. */
 int  egl_init(EglState *e, DrmState *drm);
+
+/* Bind the EGL context to the calling thread. Must be called once from the
+   render thread before any GL or mpv render calls. */
+int  egl_make_current(EglState *e);
 
 /* eglSwapBuffers → lock front GBM buffer → create DRM FB → queue page flip.
    Call after rendering each frame. */

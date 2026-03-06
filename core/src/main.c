@@ -2,8 +2,8 @@
  * Qaryx Core — main entry point
  * Single-process embedded TV UI for RK3566 / Radxa Zero 3W
  *
- * Event loop: epoll handles DRM page-flip, libinput, WebSocket,
- * yt-dlp pipes, mpv wakeup fd. All I/O is non-blocking.
+ * Main thread: epoll handles libinput, WebSocket, yt-dlp pipes, mpv events.
+ * Render thread: owns EGL context, renders UI/video, calls egl_swap (vsync).
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -14,6 +14,7 @@
 #include <time.h>
 #include <sys/epoll.h>
 #include <sys/timerfd.h>
+#include <pthread.h>
 
 #include "drm.h"
 #include "egl.h"
@@ -43,6 +44,13 @@ static int      g_epoll_fd  = -1;
 static int      g_timer_fd  = -1;   /* 30ms frame timer */
 static int      g_running   = 1;
 static int      g_display_ok = 0;   /* 0 if no HDMI/DRM available */
+
+/* ── Render thread ─────────────────────────────────────────────────────────── */
+
+static pthread_mutex_t g_render_mu   = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t  g_render_cond = PTHREAD_COND_INITIALIZER;
+static int g_render_signal = 0;  /* 1 = render thread should render a frame */
+static int g_render_ready  = 0;  /* 1 = render thread has initialised GL/mpv */
 
 /* ── epoll helpers ─────────────────────────────────────────────────────────── */
 
@@ -365,6 +373,56 @@ static void update_ytdlp_epoll(void) {
     if (n <= 8) { memcpy(prev_fds, fds, n*sizeof(int)); prev_n = n; }
 }
 
+/* ── Render thread ─────────────────────────────────────────────────────────── */
+/* Owns the EGL context. Runs independently of the epoll event loop so that
+   vsync waits in egl_swap() do not block WebSocket/input/yt-dlp processing. */
+
+void *render_thread_fn(void *arg) {
+    (void)arg;
+
+    /* Take EGL context ownership on this thread */
+    if (egl_make_current(&g_egl) < 0) {
+        fprintf(stderr, "render_thread: egl_make_current failed\n");
+        pthread_mutex_lock(&g_render_mu);
+        g_render_ready = 1;
+        pthread_cond_signal(&g_render_cond);
+        pthread_mutex_unlock(&g_render_mu);
+        return NULL;
+    }
+
+    render_init(g_cfg.screen_w, g_cfg.screen_h);
+    font_init(g_cfg.font_path);
+    thumbcache_init(g_cfg.data_dir);
+
+    if (mpv_core_init(egl_get_proc_address, NULL) < 0)
+        fprintf(stderr, "render_thread: mpv init failed\n");
+    else
+        mpv_core_set_volume(g_cfg.volume);
+
+    /* Register condvar so on_mpv_render_update() wakes us directly */
+    mpv_core_set_render_cond(&g_render_mu, &g_render_cond);
+
+    /* Signal main thread: GL/mpv init complete, epoll loop may start */
+    pthread_mutex_lock(&g_render_mu);
+    g_render_ready = 1;
+    pthread_cond_signal(&g_render_cond);
+    pthread_mutex_unlock(&g_render_mu);
+
+    while (g_running) {
+        pthread_mutex_lock(&g_render_mu);
+        while (!g_render_signal && g_running)
+            pthread_cond_wait(&g_render_cond, &g_render_mu);
+        g_render_signal = 0;
+        pthread_mutex_unlock(&g_render_mu);
+
+        if (!g_running) break;
+        render_frame();
+    }
+
+    mpv_core_set_render_cond(NULL, NULL);
+    return NULL;
+}
+
 /* ── Main ──────────────────────────────────────────────────────────────────── */
 
 int main(void) {
@@ -386,21 +444,24 @@ int main(void) {
         fprintf(stderr, "qaryx: http_proxy=%s\n", g_cfg.ytdlp_proxy);
     }
 
-    /* DRM + EGL — non-fatal: WebSocket runs even without a display */
+    /* DRM + EGL — non-fatal: WebSocket runs even without a display.
+       egl_init() creates the context but does NOT call eglMakeCurrent —
+       the render thread does that. render_init()/font_init()/mpv_core_init()
+       are all called from the render thread after egl_make_current(). */
     if (drm_init(&g_drm) < 0) {
         fprintf(stderr, "qaryx: no display, running headless (WS only)\n");
     } else if (egl_init(&g_egl, &g_drm) < 0) {
         fprintf(stderr, "qaryx: EGL failed, running headless (WS only)\n");
-    } else if (render_init(g_cfg.screen_w, g_cfg.screen_h) < 0) {
-        fprintf(stderr, "qaryx: render init failed, running headless\n");
     } else {
-        font_init(g_cfg.font_path);
-        thumbcache_init(g_cfg.data_dir);
-        if (mpv_core_init(egl_get_proc_address, NULL) < 0)
-            fprintf(stderr, "qaryx: mpv init failed\n");
-        else
-            mpv_core_set_volume(g_cfg.volume);
+        /* Launch render thread — it owns GL context and inits mpv/font/etc */
         g_display_ok = 1;
+        pthread_t render_tid;
+        pthread_create(&render_tid, NULL, render_thread_fn, NULL);
+        pthread_detach(render_tid);
+        /* Wait for render thread to finish GL/mpv init before entering event loop */
+        pthread_mutex_lock(&g_render_mu);
+        while (!g_render_ready) pthread_cond_wait(&g_render_cond, &g_render_mu);
+        pthread_mutex_unlock(&g_render_mu);
     }
 
     /* libinput */
@@ -440,7 +501,11 @@ int main(void) {
     /* Initial screen */
     if (g_display_ok) {
         ui_home_enter();
-        render_frame();
+        /* Trigger first frame render */
+        pthread_mutex_lock(&g_render_mu);
+        g_render_signal = 1;
+        pthread_cond_signal(&g_render_cond);
+        pthread_mutex_unlock(&g_render_mu);
     }
 
     /* Status push every 500ms */
@@ -483,7 +548,12 @@ int main(void) {
             } else if (tag == TAG_TIMER) {
                 uint64_t expirations;
                 read(g_timer_fd, &expirations, sizeof(expirations));
-                if (g_display_ok) render_frame();
+                if (g_display_ok) {
+                    pthread_mutex_lock(&g_render_mu);
+                    g_render_signal = 1;
+                    pthread_cond_signal(&g_render_cond);
+                    pthread_mutex_unlock(&g_render_mu);
+                }
 
                 /* Push status every ~500ms (every 15 frames at 30fps) */
                 if (++status_counter >= 15) { status_counter = 0; push_status(); }

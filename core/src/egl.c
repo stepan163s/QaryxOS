@@ -84,11 +84,15 @@ int egl_init(EglState *e, DrmState *drm) {
         return -1;
     }
 
+    fprintf(stderr, "egl: context created (call egl_make_current on render thread)\n");
+    return 0;
+}
+
+int egl_make_current(EglState *e) {
     if (!eglMakeCurrent(e->display, e->surface, e->surface, e->context)) {
         fprintf(stderr, "egl: eglMakeCurrent failed: 0x%x\n", eglGetError());
         return -1;
     }
-
     fprintf(stderr, "egl: GL_VERSION=%s\n", glGetString(GL_VERSION));
     return 0;
 }

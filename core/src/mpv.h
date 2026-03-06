@@ -2,6 +2,7 @@
 #include <mpv/client.h>
 #include <mpv/render_gl.h>
 #include <stdint.h>
+#include <pthread.h>
 
 typedef struct {
     char  state[16];   /* "idle" | "playing" | "paused" | "error" */
@@ -46,3 +47,8 @@ void mpv_core_set_volume(int level);     /* 0–100 */
 MpvStatus mpv_core_get_status(void);
 
 void mpv_core_destroy(void);
+
+/* Register a condvar to be signalled whenever mpv has a new frame to render.
+   The render thread waits on this condvar instead of polling.
+   Pass NULL to disable. */
+void mpv_core_set_render_cond(pthread_mutex_t *mu, pthread_cond_t *cond);

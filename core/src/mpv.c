@@ -9,6 +9,11 @@ static mpv_render_context  *g_mpv_gl = NULL;
 static atomic_int           g_wants_render = 0;
 static atomic_int           g_video_active = 0;  /* 1 when file loaded */
 
+/* Optional render condvar — signalled from mpv's internal thread when a
+   new frame is ready. The render thread waits on this instead of polling. */
+static pthread_mutex_t *g_render_mu   = NULL;
+static pthread_cond_t  *g_render_cond = NULL;
+
 /* ── Non-blocking status cache ─────────────────────────────────────────────
  * Updated from mpv events (MPV_EVENT_PROPERTY_CHANGE) so that
  * mpv_core_get_status() never calls blocking mpv_get_property().
@@ -23,6 +28,17 @@ static char   g_cached_url[512] = "";
 static void on_mpv_render_update(void *ctx) {
     (void)ctx;
     atomic_store(&g_wants_render, 1);
+    /* Wake render thread immediately (called from mpv internal thread) */
+    if (g_render_mu) {
+        pthread_mutex_lock(g_render_mu);
+        pthread_cond_signal(g_render_cond);
+        pthread_mutex_unlock(g_render_mu);
+    }
+}
+
+void mpv_core_set_render_cond(pthread_mutex_t *mu, pthread_cond_t *cond) {
+    g_render_mu   = mu;
+    g_render_cond = cond;
 }
 
 int mpv_core_init(void *(*get_proc_addr)(void *ctx, const char *name), void *ctx) {
