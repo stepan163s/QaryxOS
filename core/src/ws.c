@@ -130,12 +130,19 @@ void ws_send(int fd, const char *json) {
 }
 
 void ws_broadcast(const char *json) {
+    /* Snapshot open fds under lock, then release before writing.
+     * Holding the mutex during writev() blocks ws_accept/close_client. */
+    int fds[WS_MAX_CLIENTS];
+    int n = 0;
     pthread_mutex_lock(&g_clients_mu);
-    for (int i = 0; i < WS_MAX_CLIENTS; i++) {
+    for (int i = 0; i < WS_MAX_CLIENTS; i++)
         if (g_clients[i].fd >= 0 && g_clients[i].state == CS_OPEN)
-            ws_send(g_clients[i].fd, json);
-    }
+            fds[n++] = g_clients[i].fd;
     pthread_mutex_unlock(&g_clients_mu);
+    /* fd may close between snapshot and send; ws_send uses MSG_NOSIGNAL
+     * so a dead fd produces EPIPE which writev silently drops. */
+    for (int i = 0; i < n; i++)
+        ws_send(fds[i], json);
 }
 
 /* ── WebSocket frame receive ─────────────────────────────────────────────── */

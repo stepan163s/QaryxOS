@@ -177,9 +177,24 @@ cJSON *cJSON_CreateBool(int b){cJSON*n=new_item();n->type=CJSON_BOOL;n->valueboo
 cJSON *cJSON_CreateNumber(double d){cJSON*n=new_item();n->type=CJSON_NUMBER;n->valuedouble=d;n->valueint=(int)d;return n;}
 cJSON *cJSON_CreateString(const char *s){cJSON*n=new_item();n->type=CJSON_STRING;n->valuestring=strdup(s?s:"");return n;}
 
+/* O(1) tail-append for builder nodes.
+ * Invariant: for any array/object built via cJSON_Add*, first_child->prev
+ * always points to the last (tail) child.  This is safe because:
+ *   - cJSON_Delete / GetArraySize / GetArrayItem only follow ->next.
+ *   - suffix_object (parse path) sets prev = previous sibling, but
+ *     attach_child is never called on parsed nodes — only on freshly
+ *     created ones (cJSON_Create* + cJSON_Add*). */
 static void attach_child(cJSON *parent, cJSON *child) {
-    if (!parent->child) { parent->child=child; return; }
-    cJSON *c=parent->child; while(c->next)c=c->next; suffix_object(c,child);
+    child->next = NULL;
+    if (!parent->child) {
+        parent->child = child;
+        child->prev   = child;          /* first->prev = itself (tail sentinel) */
+    } else {
+        cJSON *tail   = parent->child->prev;  /* O(1) tail lookup */
+        tail->next    = child;
+        child->prev   = NULL;           /* interior nodes: ->prev unused */
+        parent->child->prev = child;    /* update tail pointer in first */
+    }
 }
 
 void cJSON_AddItemToObject(cJSON *obj, const char *key, cJSON *item) {
