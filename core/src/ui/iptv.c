@@ -31,8 +31,9 @@ static int          g_group_n   = 0;   /* count of real groups */
 static IptvChannel *g_channels  = NULL;
 static int          g_ch_n      = 0;
 
-/* URL of the channel currently being played — for the "> playing" indicator */
-static char g_playing_url[512] = "";
+/* URL + name of the channel currently being played — for the "> playing" indicator */
+static char g_playing_url[512]  = "";
+static char g_playing_name[128] = "";
 
 /* ── Helpers ─────────────────────────────────────────────────────────────── */
 
@@ -187,18 +188,13 @@ void ui_iptv_draw(void) {
         : "up/down: channel   left: groups   ok: play   back: home";
     font_draw(MARGIN_X, H - FOOTER_H + 13, hint, 19, COL_GRAY);
 
-    /* Now-playing name (right side of footer) */
-    if (g_playing_url[0]) {
-        for (int i = 0; i < g_ch_n; i++) {
-            if (!strcmp(g_channels[i].url, g_playing_url)) {
-                char np[80];
-                snprintf(np, sizeof(np), "> %.50s", g_channels[i].name);
-                float tw = font_measure(np, 19);
-                font_draw((int)(W - tw - MARGIN_X), H - FOOTER_H + 13,
-                          np, 19, rgba(90, 210, 90, 255));
-                break;
-            }
-        }
+    /* Now-playing name (right side of footer) — cached, no O(n) search */
+    if (g_playing_name[0]) {
+        char np[80];
+        snprintf(np, sizeof(np), "> %.50s", g_playing_name);
+        float tw = font_measure(np, 19);
+        font_draw((int)(W - tw - MARGIN_X), H - FOOTER_H + 13,
+                  np, 19, rgba(90, 210, 90, 255));
     }
 }
 
@@ -229,7 +225,8 @@ void ui_iptv_key(const char *key) {
     } else if (!strcmp(key, "ok")) {
         if (g_pane == PANE_CHANNELS && g_channels && g_ch_n > 0) {
             IptvChannel *ch = &g_channels[g_ch_idx];
-            strncpy(g_playing_url, ch->url, sizeof(g_playing_url) - 1);
+            strncpy(g_playing_url,  ch->url,  sizeof(g_playing_url) - 1);
+            strncpy(g_playing_name, ch->name, sizeof(g_playing_name) - 1);
             mpv_core_load(ch->url, "live");
             history_record(ch->url, ch->name, "iptv", ch->name, ch->logo, 0);
         } else if (g_pane == PANE_GROUPS) {

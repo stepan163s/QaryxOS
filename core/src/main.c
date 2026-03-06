@@ -108,6 +108,7 @@ static void broadcast_playlists(void) {
 
 typedef struct { char url[512]; char name[64]; } PlaylistAddArg;
 typedef struct { char id[32]; }                   PlaylistRefreshArg;
+typedef struct { char url[512]; int max; }        YoutubeRefreshArg;
 
 static void *playlist_add_thread(void *arg) {
     PlaylistAddArg *a = arg;
@@ -129,6 +130,42 @@ static void *playlist_refresh_thread(void *arg) {
     broadcast_playlists();
     if (g_screen == SCREEN_IPTV)
         ui_iptv_enter();
+    return NULL;
+}
+
+static void *youtube_refresh_thread(void *arg) {
+    YoutubeRefreshArg *a = arg;
+    int max = a->max > 0 ? a->max : 30;
+
+    YoutubeVideo *vids = malloc(max * sizeof(YoutubeVideo));
+    if (!vids) { free(a); return NULL; }
+
+    int count = ytdlp_get_channel_videos(a->url, max, vids);
+    free(a);
+    fprintf(stderr, "youtube: fetched %d videos\n", count);
+
+    if (count > 0) {
+        ui_youtube_set_videos(vids, count);
+
+        /* Broadcast video list to WS clients */
+        cJSON *resp = cJSON_CreateObject();
+        cJSON_AddStringToObject(resp, "type", "youtube_videos");
+        cJSON *arr = cJSON_CreateArray();
+        for (int i = 0; i < count; i++) {
+            cJSON *o = cJSON_CreateObject();
+            cJSON_AddStringToObject(o, "id",      vids[i].id);
+            cJSON_AddStringToObject(o, "title",   vids[i].title);
+            cJSON_AddStringToObject(o, "url",     vids[i].url);
+            cJSON_AddStringToObject(o, "channel", vids[i].channel_name);
+            cJSON_AddStringToObject(o, "thumb",   vids[i].thumbnail);
+            cJSON_AddNumberToObject(o, "dur",     vids[i].duration);
+            cJSON_AddItemToArray(arr, o);
+        }
+        cJSON_AddItemToObject(resp, "videos", arr);
+        char *s = cJSON_Print(resp); cJSON_Delete(resp);
+        ws_broadcast(s); free(s);
+    }
+    free(vids);
     return NULL;
 }
 
@@ -203,6 +240,18 @@ static void ws_dispatch_cmd(const char *json) {
 
     } else if (!strcmp(cmd, "history_clear")) {
         history_clear();
+
+    } else if (!strcmp(cmd, "youtube_refresh")) {
+        const char *url = cJSON_GetString(j, "channel_url", "");
+        if (!url[0]) url = g_cfg.youtube_channel;
+        if (url[0]) {
+            YoutubeRefreshArg *a = malloc(sizeof(*a));
+            strncpy(a->url, url, sizeof(a->url)-1);
+            a->max = (int)cJSON_GetNumber(j, "max", 30);
+            pthread_t tid; pthread_create(&tid, NULL, youtube_refresh_thread, a);
+            pthread_detach(tid);
+        }
+
     } else if (!strcmp(cmd, "playlists_get")) {
         broadcast_playlists();
 
@@ -303,6 +352,12 @@ static void ws_dispatch_cmd(const char *json) {
 
 /* ── Status push ───────────────────────────────────────────────────────────── */
 
+/* Position-tracking state for history_update_position() */
+static char   s_pos_url[512]  = "";
+static double s_pos_last      = 0.0;  /* position at last save */
+static time_t s_pos_save_t    = 0;    /* time of last save */
+static int    s_was_playing   = 0;    /* previous frame was playing */
+
 static void push_status(void) {
     MpvStatus st = mpv_core_get_status();
     cJSON *j = cJSON_CreateObject();
@@ -315,6 +370,33 @@ static void push_status(void) {
     cJSON_AddBoolToObject  (j, "paused",   st.paused);
     char *s = cJSON_Print(j); cJSON_Delete(j);
     ws_broadcast(s); free(s);
+
+    /* Save playback position to history:
+     *  - Every 30s during playback (for resume-on-reopen)
+     *  - On stop (transition playing → idle), to capture final position */
+    int playing = !strcmp(st.state, "playing") || !strcmp(st.state, "paused");
+    if (playing && st.url[0] && st.position > 5.0) {
+        if (strcmp(s_pos_url, st.url) != 0) {
+            /* New URL — reset tracking */
+            strncpy(s_pos_url, st.url, sizeof(s_pos_url)-1);
+            s_pos_last = 0.0;
+            s_pos_save_t = 0;
+        }
+        time_t now = time(NULL);
+        if (now - s_pos_save_t >= 30) {
+            history_update_position(st.url, st.position);
+            s_pos_last   = st.position;
+            s_pos_save_t = now;
+        }
+        s_was_playing = 1;
+    } else if (s_was_playing && !playing && s_pos_url[0] && s_pos_last > 5.0) {
+        /* Playback just stopped — save final position */
+        history_update_position(s_pos_url, s_pos_last);
+        s_pos_url[0]  = '\0';
+        s_was_playing = 0;
+    } else if (!playing) {
+        s_was_playing = 0;
+    }
 }
 
 /* ── Render frame ──────────────────────────────────────────────────────────── */
@@ -509,6 +591,15 @@ int main(void) {
     /* Data load */
     history_load();
     iptv_load();
+
+    /* Auto-fetch YouTube channel videos at startup if configured */
+    if (g_cfg.youtube_channel[0]) {
+        YoutubeRefreshArg *a = malloc(sizeof(*a));
+        strncpy(a->url, g_cfg.youtube_channel, sizeof(a->url)-1);
+        a->max = 30;
+        pthread_t yt_tid; pthread_create(&yt_tid, NULL, youtube_refresh_thread, a);
+        pthread_detach(yt_tid);
+    }
 
     /* epoll */
     g_epoll_fd = epoll_create1(EPOLL_CLOEXEC);

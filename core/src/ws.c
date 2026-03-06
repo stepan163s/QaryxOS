@@ -32,7 +32,7 @@ typedef struct {
 static int        g_listen_fd = -1;
 static WsClient   g_clients[WS_MAX_CLIENTS];
 static WsMsgHandler g_handler = NULL;
-static pthread_mutex_t g_broadcast_mu = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t g_clients_mu = PTHREAD_MUTEX_INITIALIZER;
 
 /* ── Helpers ──────────────────────────────────────────────────────────────── */
 
@@ -54,9 +54,13 @@ static WsClient *find_free(void) {
 }
 
 static void close_client(WsClient *c) {
-    if (c->fd >= 0) { close(c->fd); c->fd = -1; }
+    pthread_mutex_lock(&g_clients_mu);
+    int fd = c->fd;
+    c->fd    = -1;
     c->state = CS_CLOSED;
     c->rlen  = 0;
+    pthread_mutex_unlock(&g_clients_mu);
+    if (fd >= 0) close(fd);
 }
 
 /* ── WebSocket handshake ──────────────────────────────────────────────────── */
@@ -126,12 +130,12 @@ void ws_send(int fd, const char *json) {
 }
 
 void ws_broadcast(const char *json) {
-    pthread_mutex_lock(&g_broadcast_mu);
+    pthread_mutex_lock(&g_clients_mu);
     for (int i = 0; i < WS_MAX_CLIENTS; i++) {
         if (g_clients[i].fd >= 0 && g_clients[i].state == CS_OPEN)
             ws_send(g_clients[i].fd, json);
     }
-    pthread_mutex_unlock(&g_broadcast_mu);
+    pthread_mutex_unlock(&g_clients_mu);
 }
 
 /* ── WebSocket frame receive ─────────────────────────────────────────────── */
@@ -266,22 +270,23 @@ int ws_accept(void) {
     int fd = accept4(g_listen_fd, (struct sockaddr *)&addr, &addrlen, SOCK_CLOEXEC);
     if (fd < 0) return -1;
 
-    WsClient *c = find_free();
-    if (!c) { close(fd); return -1; }
-
     set_nonblock(fd);
     int one = 1;
     setsockopt(fd, IPPROTO_TCP, TCP_NODELAY,   &one, sizeof(one));
-    /* TCP keepalive: detect dead clients within ~40s */
     setsockopt(fd, SOL_SOCKET,  SO_KEEPALIVE,  &one, sizeof(one));
     int keepidle = 20, keepintvl = 5, keepcnt = 4;
     setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE,  &keepidle,  sizeof(keepidle));
     setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &keepintvl, sizeof(keepintvl));
     setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT,   &keepcnt,   sizeof(keepcnt));
 
+    pthread_mutex_lock(&g_clients_mu);
+    WsClient *c = find_free();
+    if (!c) { pthread_mutex_unlock(&g_clients_mu); close(fd); return -1; }
     c->fd    = fd;
     c->state = CS_HANDSHAKE;
     c->rlen  = 0;
+    pthread_mutex_unlock(&g_clients_mu);
+
     fprintf(stderr, "ws: new client fd=%d\n", fd);
     return fd;
 }

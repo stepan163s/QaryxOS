@@ -3,34 +3,61 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <pthread.h>
 
-static ServicesState g_state;
-static time_t        g_last_refresh = 0;
+static ServicesState   g_state;
+static time_t          g_last_refresh = 0;
+static pthread_mutex_t g_mu   = PTHREAD_MUTEX_INITIALIZER;
+static int             g_busy = 0; /* 1 = background refresh in flight */
 
-static int svc_active(const char *name) {
+/* Single systemctl query — does not block the calling thread for long. */
+static int svc_query(const char *subcmd, const char *name) {
     char cmd[128];
     snprintf(cmd, sizeof(cmd),
-             "systemctl is-active --quiet %s 2>/dev/null", name);
-    return system(cmd) == 0;
+             "systemctl %s --quiet %s 2>/dev/null; echo $?", subcmd, name);
+    FILE *f = popen(cmd, "r");
+    if (!f) return 0;
+    int rc = 1;
+    fscanf(f, "%d", &rc);
+    pclose(f);
+    return rc == 0;
 }
 
-static int svc_enabled(const char *name) {
-    char cmd[128];
-    snprintf(cmd, sizeof(cmd),
-             "systemctl is-enabled --quiet %s 2>/dev/null", name);
-    return system(cmd) == 0;
+static void *refresh_thread(void *arg) {
+    (void)arg;
+    ServicesState s;
+    s.xray_active       = svc_query("is-active",  "xray");
+    s.xray_enabled      = svc_query("is-enabled", "xray");
+    s.tailscale_active  = svc_query("is-active",  "tailscaled");
+    s.tailscale_enabled = svc_query("is-enabled", "tailscaled");
+
+    pthread_mutex_lock(&g_mu);
+    g_state        = s;
+    g_last_refresh = time(NULL);
+    g_busy         = 0;
+    pthread_mutex_unlock(&g_mu);
+    return NULL;
+}
+
+/* Must be called with g_mu held. */
+static void spawn_refresh(void) {
+    if (g_busy) return;
+    g_busy = 1;
+    pthread_t t;
+    if (pthread_create(&t, NULL, refresh_thread, NULL) == 0)
+        pthread_detach(t);
+    else
+        g_busy = 0;
 }
 
 const ServicesState *services_get(int force) {
+    pthread_mutex_lock(&g_mu);
     time_t now = time(NULL);
-    if (force || now - g_last_refresh > 5) {
-        g_state.xray_active       = svc_active("xray");
-        g_state.xray_enabled      = svc_enabled("xray");
-        g_state.tailscale_active  = svc_active("tailscaled");
-        g_state.tailscale_enabled = svc_enabled("tailscaled");
-        g_last_refresh = now;
-    }
-    return &g_state;
+    if (force || now - g_last_refresh > 5)
+        spawn_refresh();   /* non-blocking — returns immediately */
+    const ServicesState *p = &g_state;
+    pthread_mutex_unlock(&g_mu);
+    return p;
 }
 
 void services_set(const char *name, int enable) {
@@ -43,6 +70,10 @@ void services_set(const char *name, int enable) {
     else
         snprintf(cmd, sizeof(cmd),
                  "systemctl disable --now %s 2>/dev/null", name);
-    system(cmd);
-    services_get(1);
+    system(cmd);   /* intentional: user toggled a service, short wait OK */
+
+    pthread_mutex_lock(&g_mu);
+    g_last_refresh = 0;   /* invalidate cache so next get() re-queries */
+    spawn_refresh();
+    pthread_mutex_unlock(&g_mu);
 }

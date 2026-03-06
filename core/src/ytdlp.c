@@ -293,11 +293,13 @@ int ytdlp_get_channel_videos(const char *channel_url, int max, YoutubeVideo *out
     }
     close(pipefd[1]);
 
-    /* Read all output (blocking) */
-    char buf[256*1024];
+    /* Read all output (blocking) — use heap to avoid 256KB stack frame */
+    size_t bufsz = 256 * 1024;
+    char *buf = malloc(bufsz);
+    if (!buf) { close(pipefd[0]); waitpid(pid, NULL, 0); return 0; }
     int  len = 0;
     ssize_t n;
-    while ((n = read(pipefd[0], buf+len, sizeof(buf)-len-1)) > 0) len += n;
+    while ((n = read(pipefd[0], buf+len, bufsz-len-1)) > 0) len += n;
     buf[len] = '\0';
     close(pipefd[0]);
     waitpid(pid, NULL, 0);
@@ -335,5 +337,6 @@ int ytdlp_get_channel_videos(const char *channel_url, int max, YoutubeVideo *out
         line = nl ? nl+1 : NULL;
     }
 
+    free(buf);
     return count;
 }

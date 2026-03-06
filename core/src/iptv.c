@@ -267,23 +267,24 @@ int iptv_add_playlist(const char *url, const char *name) {
 }
 
 int iptv_remove_playlist(const char *id) {
+    IPTV_LOCK();
+    int ret = 0;
     for (int i = 0; i < g_pl_count; i++) {
         if (!strcmp(g_playlists[i].id, id)) {
-            /* Remove channels */
             int w = 0;
             for (int j = 0; j < g_ch_count; j++)
                 if (strcmp(g_channels[j].playlist_id, id))
                     g_channels[w++] = g_channels[j];
             g_ch_count = w;
-
-            /* Remove playlist */
             g_playlists[i] = g_playlists[--g_pl_count];
             remove(channel_cache_path(id));
             iptv_save_playlists();
-            return 1;
+            ret = 1;
+            break;
         }
     }
-    return 0;
+    IPTV_UNLOCK();
+    return ret;
 }
 
 int iptv_refresh_playlist(const char *id) {
@@ -345,9 +346,10 @@ int iptv_refresh_playlist(const char *id) {
 }
 
 int iptv_import_channels(const char *name, void *channels_cjson_array) {
-    if (g_pl_count >= IPTV_MAX_PLAYLISTS) return -1;
+    IPTV_LOCK();
+    if (g_pl_count >= IPTV_MAX_PLAYLISTS) { IPTV_UNLOCK(); return -1; }
     cJSON *arr = (cJSON *)channels_cjson_array;
-    if (!arr) return -1;
+    if (!arr) { IPTV_UNLOCK(); return -1; }
 
     IptvPlaylist *pl = &g_playlists[g_pl_count];
     unsigned h = 5381;
@@ -381,10 +383,17 @@ int iptv_import_channels(const char *name, void *channels_cjson_array) {
     pl->channel_count = added;
     save_channel_cache(pl->id, g_channels + g_ch_count - added, added);
     iptv_save_playlists();
+    IPTV_UNLOCK();
     return added;
 }
 
-IptvPlaylist *iptv_get_playlists(int *n) { *n = g_pl_count; return g_playlists; }
+IptvPlaylist *iptv_get_playlists(int *n) {
+    /* No lock needed — caller must not modify the returned array.
+     * g_pl_count read is atomic on ARM64; worst case is a stale count
+     * which is acceptable for a display-only query. */
+    *n = g_pl_count;
+    return g_playlists;
+}
 
 IptvChannel *iptv_get_channels(const char *pl_id, const char *group, int *n) {
     static IptvChannel result[IPTV_MAX_CHANNELS];

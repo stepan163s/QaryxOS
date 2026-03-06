@@ -13,6 +13,7 @@ typedef struct {
     char     ytdlp_proxy[256];  /* optional HTTP proxy for yt-dlp, e.g. http://127.0.0.1:10809 */
     char     ytdlp_quality[16]; /* max resolution: "480", "720", "1080". Default "720" */
     char     iptv_proxy[256];   /* optional HTTP proxy for IPTV M3U download + stream playback */
+    char     youtube_channel[512]; /* default YouTube channel/playlist URL to show on startup */
 } Config;
 
 /* Load config from CONFIG_FILE. Missing keys get defaults. */
