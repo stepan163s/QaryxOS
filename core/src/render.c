@@ -164,6 +164,14 @@ void render_begin_frame(void) {
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, 0);
+
+    /* Upload u_screen once per frame to every program (screen size is constant
+     * within a frame — avoids one glUniform2f per draw call, saving ~5000
+     * redundant uniform uploads per frame on a busy UI screen). */
+    float sw = (float)g_screen_w, sh = (float)g_screen_h;
+    glUseProgram(g_rect.prog);  glUniform2f(g_rect.u_screen,  sw, sh);
+    glUseProgram(g_tex.prog);   glUniform2f(g_tex.u_screen,   sw, sh);
+    glUseProgram(g_glyph.prog); glUniform2f(g_glyph.u_screen, sw, sh);
     glUseProgram(0);
 
     uint8_t r = (COL_BG >> 16) & 0xff;
@@ -205,7 +213,6 @@ void render_rect(int x, int y, int w, int h, uint32_t color) {
 
     upload_quad(x, y, w, h);
     glUseProgram(g_rect.prog);
-    glUniform2f(g_rect.u_screen, (float)g_screen_w, (float)g_screen_h);
     glUniform4f(g_rect.u_color, r, g, b, a);
     bind_quad_attribs(g_rect.a_pos, g_rect.a_uv);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
@@ -223,7 +230,6 @@ void render_rect_outline(int x, int y, int w, int h, uint32_t color, int border)
 void render_texture(int x, int y, int w, int h, GLuint tex, float alpha) {
     upload_quad(x, y, w, h);
     glUseProgram(g_tex.prog);
-    glUniform2f(g_tex.u_screen, (float)g_screen_w, (float)g_screen_h);
     glUniform1i(g_tex.u_tex, 0);
     glUniform1f(g_tex.u_alpha, alpha);
     glActiveTexture(GL_TEXTURE0);
@@ -254,7 +260,6 @@ void render_glyph(int x, int y, int w, int h,
                   float r,  float g,  float b,  float a) {
     upload_quad_uv(x, y, w, h, u0, v0, u1, v1);
     glUseProgram(g_glyph.prog);
-    glUniform2f(g_glyph.u_screen, (float)g_screen_w, (float)g_screen_h);
     glUniform1i(g_glyph.u_tex, 0);
     glUniform4f(g_glyph.u_color, r, g, b, a);
     glActiveTexture(GL_TEXTURE0);

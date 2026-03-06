@@ -16,80 +16,111 @@ void navigate(const char *name) {
     else if (!strcmp(name, "settings")) { ui_settings_enter(); g_screen = SCREEN_SETTINGS; }
 }
 
-/* ── Home screen ─────────────────────────────────────────────────────────── */
+/* ── Home screen — 2×2 tile grid ─────────────────────────────────────────── */
 
-/* 4 tiles: YouTube / IPTV / History / Settings */
-#define N_TILES 4
+#define N_TILES  4
+#define N_COLS   2
 
 static const struct {
     const char *label;
-    const char *icon;   /* ASCII-only: stays within the baked atlas range 32-127 */
+    const char *icon;   /* large ASCII glyph drawn at 54px */
+    const char *hint;   /* one-line description */
     Screen      dest;
 } TILES[N_TILES] = {
-    { "YouTube",  "[YT]", SCREEN_YOUTUBE  },
-    { "IPTV",     "[TV]", SCREEN_IPTV    },
-    { "History",  "[<<]", SCREEN_HOME    },
-    { "Settings", "[==]", SCREEN_SETTINGS },
+    { "YouTube",  "[ > ]",  "Browse videos",    SCREEN_YOUTUBE  },
+    { "IPTV",     "[ TV ]", "Live TV channels", SCREEN_IPTV     },
+    { "History",  "[ << ]", "Recently watched", SCREEN_HOME     },
+    { "Settings", "[ :: ]", "System controls",  SCREEN_SETTINGS },
 };
 
-static int g_focused = 0;
+static int g_focused = 0;   /* 0=YT 1=IPTV 2=History 3=Settings */
 
-#define TILE_W  380
-#define TILE_H  240
-#define TILE_GAP 40
-#define START_X  ((g_screen_w - (N_TILES * TILE_W + (N_TILES-1) * TILE_GAP)) / 2)
-#define START_Y  ((g_screen_h - TILE_H) / 2)
+/* Layout — computed at draw time from actual screen dims */
+#define HM       80    /* left/right margin */
+#define VT      108    /* y where the tile grid starts */
+#define TGAP     36    /* gap between tiles (both axes) */
+#define FTR_H    44    /* footer bar height */
+#define FTR_PAD  12    /* gap between last tile row and footer line */
 
 void ui_home_draw(void) {
-    /* Header */
-    font_draw(60, 40, "QaryxOS", 42, COL_ACCENT);
+    int W = g_screen_w, H = g_screen_h;
+    int TW = (W - 2*HM - TGAP) / 2;
+    int TH = (H - VT - FTR_H - FTR_PAD - TGAP) / 2;
 
-    /* Status bar */
+    /* Slim left-edge accent stripe */
+    render_rect(0, 0, 3, H, COL_ACCENT);
+
+    /* ── Header ─────────────────────────────────────────────────────────── */
+    font_draw(HM, 22, "QaryxOS", 38, COL_ACCENT);
+
+    /* Playback status — right-aligned */
     MpvStatus st = mpv_core_get_status();
-    char status_text[128];
+    char sbuf[128] = "";
     if (!strcmp(st.state, "playing") || !strcmp(st.state, "paused"))
-        snprintf(status_text, sizeof(status_text),
-                 "%s  %d:%02d / %d:%02d  vol %d%%",
-                 !strcmp(st.state,"paused") ? "||" : ">",
+        snprintf(sbuf, sizeof(sbuf), "%s  %d:%02d / %d:%02d  vol %d%%",
+                 !strcmp(st.state, "paused") ? "||" : ">",
                  (int)st.position/60, (int)st.position%60,
                  (int)st.duration/60, (int)st.duration%60,
                  st.volume);
-    else
-        snprintf(status_text, sizeof(status_text), "Idle");
-    font_draw(60, 100, status_text, 22, COL_GRAY);
-
-    /* Tiles */
-    for (int i = 0; i < N_TILES; i++) {
-        int x = START_X + i * (TILE_W + TILE_GAP);
-        int y = START_Y;
-
-        uint32_t bg = (i == g_focused) ? COL_TILE_HL : COL_TILE;
-        render_rect(x, y, TILE_W, TILE_H, bg);
-
-        if (i == g_focused)
-            render_rect_outline(x, y, TILE_W, TILE_H, COL_ACCENT, 3);
-
-        /* Icon */
-        font_draw(x + TILE_W/2 - 24, y + 60, TILES[i].icon, 48,
-                  i == g_focused ? COL_WHITE : COL_GRAY);
-        /* Label */
-        float tw = font_measure(TILES[i].label, 28);
-        font_draw(x + (int)(TILE_W - tw)/2, y + TILE_H - 60,
-                  TILES[i].label, 28,
-                  i == g_focused ? COL_WHITE : COL_GRAY);
+    if (sbuf[0]) {
+        float sw = font_measure(sbuf, 19);
+        font_draw((int)(W - HM - sw), 34, sbuf, 19, COL_GRAY);
     }
 
-    /* Hint */
-    font_draw(60, g_screen_h - 48,
-              "← → navigate   OK — open   Back — stop playback",
-              20, COL_GRAY);
+    /* Header separator */
+    render_rect(HM, VT - 8, W - 2*HM, 1, rgba(35, 35, 55, 255));
+
+    /* ── 2×2 Tile grid ───────────────────────────────────────────────────── */
+    for (int i = 0; i < N_TILES; i++) {
+        int col = i % N_COLS;
+        int row = i / N_COLS;
+        int tx  = HM + col * (TW + TGAP);
+        int ty  = VT + row * (TH + TGAP);
+        int sel = (i == g_focused);
+
+        /* Tile background */
+        uint32_t bg = sel ? rgba(22, 26, 52, 255) : rgba(15, 16, 30, 255);
+        render_rect(tx, ty, TW, TH, bg);
+
+        /* Left accent stripe — focused only */
+        if (sel)
+            render_rect(tx, ty, 4, TH, COL_ACCENT);
+
+        /* Outline — focused only */
+        if (sel)
+            render_rect_outline(tx, ty, TW, TH, COL_ACCENT, 2);
+
+        /* Icon — centered horizontally, upper 55% of tile */
+        float iw = font_measure(TILES[i].icon, 54);
+        int   ix = tx + (TW - (int)iw) / 2;
+        int   iy = ty + TH * 55 / 100 - 80;
+        uint32_t icol = sel ? COL_WHITE : rgba(50, 55, 95, 255);
+        font_draw(ix, iy, TILES[i].icon, 54, icol);
+
+        /* Divider between icon area and text area */
+        render_rect(tx + 36, ty + TH - 120, TW - 72, 1, rgba(30, 32, 55, 255));
+
+        /* Tile label */
+        uint32_t lcol = sel ? COL_WHITE : rgba(145, 150, 190, 255);
+        font_draw(tx + 36, ty + TH - 105, TILES[i].label, 27, lcol);
+
+        /* One-line hint */
+        uint32_t hcol = sel ? rgba(130, 145, 215, 255) : rgba(55, 58, 88, 255);
+        font_draw(tx + 36, ty + TH - 65, TILES[i].hint, 19, hcol);
+    }
+
+    /* ── Footer ──────────────────────────────────────────────────────────── */
+    render_rect(0, H - FTR_H, W, 1, rgba(35, 35, 55, 255));
+    font_draw(HM, H - FTR_H + 13,
+              "< > ^ v  navigate   OK -- open   Back -- stop playback",
+              19, rgba(72, 75, 105, 255));
 }
 
 void ui_home_key(const char *key) {
-    if (!strcmp(key, "right")) {
-        g_focused = (g_focused + 1) % N_TILES;
-    } else if (!strcmp(key, "left")) {
-        g_focused = (g_focused - 1 + N_TILES) % N_TILES;
+    if (!strcmp(key, "right") || !strcmp(key, "left")) {
+        g_focused ^= 1;              /* flip column bit */
+    } else if (!strcmp(key, "down") || !strcmp(key, "up")) {
+        g_focused ^= 2;              /* flip row bit */
     } else if (!strcmp(key, "ok")) {
         if (TILES[g_focused].dest != SCREEN_HOME)
             navigate(TILES[g_focused].dest == SCREEN_IPTV     ? "iptv"     :
@@ -102,9 +133,7 @@ void ui_home_key(const char *key) {
     }
 }
 
-void ui_home_enter(void) {
-    /* Nothing to load on home screen */
-}
+void ui_home_enter(void) { /* nothing to preload on home screen */ }
 
 /* ── Settings screen ─────────────────────────────────────────────────────── */
 
