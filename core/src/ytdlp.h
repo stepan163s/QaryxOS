@@ -2,7 +2,8 @@
 #include <stddef.h>
 #include <time.h>
 
-#define YTDLP_BIN     "/usr/local/bin/yt-dlp"
+#define YTDLP_BIN         "/usr/local/bin/yt-dlp"
+#define YTDLP_DAEMON_SOCK "/tmp/qaryxos-ytdlp.sock"
 #define YTDLP_TIMEOUT 30     /* seconds */
 #define CACHE_TTL     (4*3600)
 #define CACHE_MAX     50

@@ -1,0 +1,20 @@
+[Unit]
+Description=QaryxOS yt-dlp daemon (persistent Python process for fast URL resolve)
+After=network-online.target qaryxos.service
+Wants=network-online.target
+# Restart if it crashes — e.g. after yt-dlp API changes
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /usr/local/bin/qaryxos-ytdlp-daemon
+Restart=on-failure
+RestartSec=5
+# Low priority — qaryx gets CPU first
+CPUWeight=20
+IOWeight=20
+# Logs to journald
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

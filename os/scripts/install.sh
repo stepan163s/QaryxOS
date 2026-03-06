@@ -51,11 +51,15 @@ apt-get install -y --no-install-recommends \
 
 # ── 2. yt-dlp ─────────────────────────────────────────────────────────────────
 
-info "Installing yt-dlp (aarch64 binary)..."
+info "Installing yt-dlp (binary + Python package for daemon)..."
 curl -sL "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux_aarch64" \
     -o /usr/local/bin/yt-dlp
 chmod +x /usr/local/bin/yt-dlp
-info "  yt-dlp $(yt-dlp --version)"
+info "  yt-dlp binary: $(yt-dlp --version)"
+# Python package — used by yt-dlp-daemon.py (avoids per-request startup overhead)
+pip3 install --quiet --break-system-packages yt-dlp 2>/dev/null || \
+pip3 install --quiet yt-dlp 2>/dev/null || \
+    warn "pip3 install yt-dlp failed — daemon will not be available (fallback: binary)"
 
 # ── 3. Clone / update source ──────────────────────────────────────────────────
 
@@ -130,9 +134,12 @@ sysctl -p /etc/sysctl.d/99-qaryxos.conf 2>/dev/null || true
 # ── 7. systemd units ──────────────────────────────────────────────────────────
 
 info "Installing systemd units..."
-cp "$SRC_DIR/os/overlay/etc/systemd/system/qaryxos.service"             /etc/systemd/system/
-cp "$SRC_DIR/os/overlay/etc/systemd/system/qaryxos-cpu-governor.service" /etc/systemd/system/
-cp "$SRC_DIR/os/overlay/etc/systemd/system/qaryxos-zram.service"         /etc/systemd/system/
+cp "$SRC_DIR/os/overlay/etc/systemd/system/qaryxos.service"                /etc/systemd/system/
+cp "$SRC_DIR/os/overlay/etc/systemd/system/qaryxos-cpu-governor.service"   /etc/systemd/system/
+cp "$SRC_DIR/os/overlay/etc/systemd/system/qaryxos-zram.service"           /etc/systemd/system/
+cp "$SRC_DIR/os/overlay/etc/systemd/system/qaryxos-ytdlp-daemon.service"   /etc/systemd/system/
+
+install -m 755 "$SRC_DIR/os/scripts/yt-dlp-daemon.py" /usr/local/bin/qaryxos-ytdlp-daemon
 
 # ── 8. mDNS (Android auto-discovery) ─────────────────────────────────────────
 
@@ -216,6 +223,7 @@ systemctl enable qaryxos-zram.service
 systemctl enable qaryxos-cpu-governor.service
 systemctl enable qaryxos.service
 systemctl enable avahi-daemon
+systemctl enable qaryxos-ytdlp-daemon.service
 
 # ── Done ──────────────────────────────────────────────────────────────────────
 

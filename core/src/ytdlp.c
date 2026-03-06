@@ -8,6 +8,8 @@
 #include <errno.h>
 #include <time.h>
 #include <sys/wait.h>
+#include <sys/socket.h>
+#include <sys/un.h>
 
 /* ── URL cache ────────────────────────────────────────────────────────────── */
 
@@ -92,6 +94,27 @@ static void remove_pending(Pending *p) {
     g_pending[idx] = g_pending[--g_pending_n];
 }
 
+/* ── Daemon socket ────────────────────────────────────────────────────────── */
+
+/* Connect to the yt-dlp daemon socket (non-blocking).
+   Returns fd ≥ 0 on success, -1 if daemon is not running. */
+static int daemon_connect(void) {
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0) return -1;
+
+    struct sockaddr_un addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sun_family = AF_UNIX;
+    strncpy(addr.sun_path, YTDLP_DAEMON_SOCK, sizeof(addr.sun_path) - 1);
+
+    if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+        close(fd);
+        return -1;
+    }
+    fcntl(fd, F_SETFL, O_NONBLOCK);
+    return fd;
+}
+
 /* ── Public API ───────────────────────────────────────────────────────────── */
 
 void ytdlp_resolve(const char *url, const char *quality,
@@ -122,6 +145,28 @@ void ytdlp_resolve(const char *url, const char *quality,
         "best[height<=%s]",
         h, h, h, h, h, h);
 
+    /* Try daemon socket first — eliminates ~300-500ms Python startup per call */
+    int daemon_fd = daemon_connect();
+    if (daemon_fd >= 0) {
+        char req[1024];
+        int reqlen = snprintf(req, sizeof(req), "%s\t%s\t%s\n",
+                              url, fmt, g_proxy);
+        /* Non-blocking write is fine: request is small and socket buffer is large */
+        if (write(daemon_fd, req, reqlen) == reqlen) {
+            Pending *p = &g_pending[g_pending_n++];
+            p->pipe_fd  = daemon_fd;
+            p->pid      = -1;   /* no child process — daemon handles it */
+            strncpy(p->url, url, sizeof(p->url) - 1);
+            p->rlen     = 0;
+            p->cb       = cb;
+            p->userdata = userdata;
+            return;
+        }
+        close(daemon_fd);
+        /* Fall through to fork/exec below */
+    }
+
+    /* Fallback: fork yt-dlp binary (daemon not running or write failed) */
     int pipefd[2];
     if (pipe2(pipefd, O_CLOEXEC) < 0) { if (cb) cb(NULL, userdata); return; }
 
@@ -136,7 +181,6 @@ void ytdlp_resolve(const char *url, const char *quality,
         /* Child */
         dup2(pipefd[1], STDOUT_FILENO);
         close(pipefd[0]); close(pipefd[1]);
-        /* Redirect stderr to /dev/null */
         int devnull = open("/dev/null", O_WRONLY);
         if (devnull >= 0) dup2(devnull, STDERR_FILENO);
         /* android client: skips JS parsing, ~2x faster URL extraction */
@@ -161,12 +205,12 @@ void ytdlp_resolve(const char *url, const char *quality,
     fcntl(pipefd[0], F_SETFL, O_NONBLOCK);
 
     Pending *p = &g_pending[g_pending_n++];
-    p->pipe_fd = pipefd[0];
-    p->pid     = pid;
-    strncpy(p->url, url, sizeof(p->url)-1);
-    p->rlen    = 0;
-    p->cb      = cb;
-    p->userdata= userdata;
+    p->pipe_fd  = pipefd[0];
+    p->pid      = pid;
+    strncpy(p->url, url, sizeof(p->url) - 1);
+    p->rlen     = 0;
+    p->cb       = cb;
+    p->userdata = userdata;
 }
 
 void ytdlp_dispatch(int fd) {
@@ -183,8 +227,11 @@ void ytdlp_dispatch(int fd) {
     }
 
     /* EOF or error — process result */
-    int   status  = 0;
-    waitpid(p->pid, &status, WNOHANG);
+    int status = 0;
+    if (p->pid > 0)
+        waitpid(p->pid, &status, WNOHANG);
+    else
+        status = W_EXITCODE(0, 0); /* daemon: treat as success if we got data */
 
     /* Extract first non-empty line */
     char *result = NULL;
@@ -200,7 +247,10 @@ void ytdlp_dispatch(int fd) {
         line = strtok(NULL, "\n");
     }
 
-    if (result && WIFEXITED(status) && WEXITSTATUS(status) == 0) {
+    /* Daemon may respond "ERROR" on failure */
+    if (result && strcmp(result, "ERROR") == 0) result = NULL;
+
+    if (result && (p->pid < 0 || (WIFEXITED(status) && WEXITSTATUS(status) == 0))) {
         cache_set(p->url, result);
         if (p->cb) p->cb(result, p->userdata);
     } else {
