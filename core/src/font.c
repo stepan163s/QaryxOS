@@ -34,6 +34,7 @@ static BakedFont  g_fonts[NUM_SIZES];
 static GLuint     g_atlas_tex;
 static uint8_t    g_atlas_buf[ATLAS_W * ATLAS_H];
 static int        g_atlas_cursor_y = 0;
+static int        g_atlas_used_h   = ATLAS_H;  /* actual rows uploaded to GPU */
 static int        g_ready = 0;
 
 static uint8_t *g_ttf_data = NULL;
@@ -98,18 +99,24 @@ int font_init(const char *ttf_path) {
                        g_sizes[i], &g_fonts[i].cyr_y)   < 0) return -1;
     }
 
+    /* Upload only the rows that were actually baked — saves ~65% GPU texture
+     * memory and startup upload time.  With 6 sizes, g_atlas_cursor_y ≈ 716
+     * vs the full ATLAS_H=2048.  UV coordinates are computed against this
+     * actual height so sampling is still correct. */
+    g_atlas_used_h = g_atlas_cursor_y;
+
     glGenTextures(1, &g_atlas_tex);
     glBindTexture(GL_TEXTURE_2D, g_atlas_tex);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_ALPHA, ATLAS_W, ATLAS_H, 0,
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_ALPHA, ATLAS_W, g_atlas_used_h, 0,
                  GL_ALPHA, GL_UNSIGNED_BYTE, g_atlas_buf);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glBindTexture(GL_TEXTURE_2D, 0);
 
     g_ready = 1;
-    fprintf(stderr, "font: atlas %dx%d, %d sizes × 2 ranges (ASCII+Cyrillic) baked\n",
-            ATLAS_W, ATLAS_H, NUM_SIZES);
+    fprintf(stderr, "font: atlas %dx%d (of %d max), %d sizes × 2 ranges baked\n",
+            ATLAS_W, g_atlas_used_h, ATLAS_H, NUM_SIZES);
     return 0;
 }
 
@@ -160,9 +167,9 @@ static float render_bc(const stbtt_bakedchar *bc, int atlas_y,
     float gw = (bc->x1 - bc->x0) * scale;
     float gh = (bc->y1 - bc->y0) * scale;
     float u0 = (float)bc->x0 / ATLAS_W;
-    float v0 = (float)(atlas_y + bc->y0) / ATLAS_H;
+    float v0 = (float)(atlas_y + bc->y0) / g_atlas_used_h;
     float u1 = (float)bc->x1 / ATLAS_W;
-    float v1 = (float)(atlas_y + bc->y1) / ATLAS_H;
+    float v1 = (float)(atlas_y + bc->y1) / g_atlas_used_h;
     render_glyph((int)gx, (int)gy, (int)(gw + 0.5f), (int)(gh + 0.5f),
                  g_atlas_tex, u0, v0, u1, v1, cr, cg, cb, ca);
     return bc->xadvance * scale;

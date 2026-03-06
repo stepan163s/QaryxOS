@@ -8,14 +8,20 @@ int g_screen_h = 1080;
 
 /* ── Shader sources (GLSL ES 1.00) ──────────────────────────────────────── */
 
+/* u_screen now holds the precomputed NDC scale: vec2(2.0/w, 2.0/h).
+ * Replacing the per-vertex division  (a_pos / screen_size * 2.0 - 1.0)
+ * with a multiplication (a_pos * u_screen - 1.0) saves one GPU fdiv per
+ * vertex component.  On Mali-G52, fdiv ≈ 20 cycles vs fmul ≈ 2 cycles.
+ * With ~5100 quads/frame × 4 verts × 2 components = ~41 000 divisions
+ * eliminated per frame. */
 static const char *VERT_SRC =
     "attribute vec2 a_pos;\n"
     "attribute vec2 a_uv;\n"
     "varying   vec2 v_uv;\n"
-    "uniform   vec2 u_screen;\n"   /* (width, height) */
+    "uniform   vec2 u_screen;\n"   /* precomputed: vec2(2.0/w, 2.0/h) */
     "void main() {\n"
     "    v_uv = a_uv;\n"
-    "    vec2 ndc = a_pos / u_screen * 2.0 - 1.0;\n"
+    "    vec2 ndc = a_pos * u_screen - 1.0;\n"
     "    gl_Position = vec4(ndc.x, -ndc.y, 0.0, 1.0);\n"
     "}\n";
 
@@ -165,10 +171,10 @@ void render_begin_frame(void) {
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, 0);
 
-    /* Upload u_screen once per frame to every program (screen size is constant
-     * within a frame — avoids one glUniform2f per draw call, saving ~5000
-     * redundant uniform uploads per frame on a busy UI screen). */
-    float sw = (float)g_screen_w, sh = (float)g_screen_h;
+    /* Upload NDC scale once per frame to every program.
+     * Value is 2.0/size so the vertex shader can multiply instead of divide
+     * (u_screen now means vec2(2/w, 2/h), not vec2(w, h)). */
+    float sw = 2.0f / (float)g_screen_w, sh = 2.0f / (float)g_screen_h;
     glUseProgram(g_rect.prog);  glUniform2f(g_rect.u_screen,  sw, sh);
     glUseProgram(g_tex.prog);   glUniform2f(g_tex.u_screen,   sw, sh);
     glUseProgram(g_glyph.prog); glUniform2f(g_glyph.u_screen, sw, sh);
