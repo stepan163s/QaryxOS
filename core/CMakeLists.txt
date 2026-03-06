@@ -85,6 +85,7 @@ target_compile_options(qaryx PRIVATE
     ${LIBINPUT_CFLAGS_OTHER}
     -Wall -Wextra -Wno-unused-parameter
     -D_GNU_SOURCE
+    $<IF:$<CONFIG:Debug>,-O0,-O2>
 )
 
 install(TARGETS qaryx DESTINATION /usr/bin)

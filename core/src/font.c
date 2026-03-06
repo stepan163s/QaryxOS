@@ -28,8 +28,8 @@ typedef struct {
     int              cyr_y;     /* y offset of Cyrillic strip in atlas */
 } BakedFont;
 
-#define NUM_SIZES 2
-static float      g_sizes[NUM_SIZES] = { 22.0f, 38.0f };
+#define NUM_SIZES 6
+static float      g_sizes[NUM_SIZES] = { 19.0f, 22.0f, 24.0f, 27.0f, 38.0f, 54.0f };
 static BakedFont  g_fonts[NUM_SIZES];
 static GLuint     g_atlas_tex;
 static uint8_t    g_atlas_buf[ATLAS_W * ATLAS_H];
