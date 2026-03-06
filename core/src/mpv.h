@@ -40,6 +40,10 @@ int  mpv_core_is_video_active(void);
    Call before drawing UI overlay. */
 void mpv_core_render(int w, int h);
 
+/* Set HTTP proxy for stream playback (e.g. "http://127.0.0.1:10809").
+   Applies to all subsequent mpv_core_load() calls. Pass NULL to disable. */
+void mpv_core_set_http_proxy(const char *proxy);
+
 /* Playback controls */
 void mpv_core_load(const char *url, const char *profile); /* profile: "live" or NULL */
 void mpv_core_pause_toggle(void);

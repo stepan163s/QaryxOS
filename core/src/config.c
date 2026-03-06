@@ -46,6 +46,7 @@ void config_load(Config *cfg) {
     if ((s = cJSON_GetString(j, "font_path",   NULL))) strncpy(cfg->font_path,   s, sizeof(cfg->font_path)-1);
     if ((s = cJSON_GetString(j, "ytdlp_proxy",   NULL))) strncpy(cfg->ytdlp_proxy,   s, sizeof(cfg->ytdlp_proxy)-1);
     if ((s = cJSON_GetString(j, "ytdlp_quality", NULL))) strncpy(cfg->ytdlp_quality, s, sizeof(cfg->ytdlp_quality)-1);
+    if ((s = cJSON_GetString(j, "iptv_proxy",    NULL))) strncpy(cfg->iptv_proxy,    s, sizeof(cfg->iptv_proxy)-1);
 
     cJSON_Delete(j);
 }

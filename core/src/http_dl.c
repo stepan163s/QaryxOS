@@ -18,7 +18,7 @@ static size_t write_cb(void *data, size_t size, size_t nmemb, void *ud) {
     return bytes;
 }
 
-char *http_dl_string(const char *url) {
+char *http_dl_string(const char *url, const char *proxy) {
     CURL *c = curl_easy_init();
     if (!c) return NULL;
 
@@ -29,6 +29,8 @@ char *http_dl_string(const char *url) {
     curl_easy_setopt(c, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(c, CURLOPT_TIMEOUT,        30L);
     curl_easy_setopt(c, CURLOPT_USERAGENT,      "QaryxOS/2.0");
+    if (proxy && proxy[0])
+        curl_easy_setopt(c, CURLOPT_PROXY, proxy);
 
     CURLcode res = curl_easy_perform(c);
     curl_easy_cleanup(c);

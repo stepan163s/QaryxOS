@@ -23,6 +23,10 @@ typedef struct {
     int    channel_count;
 } IptvPlaylist;
 
+/* Set HTTP/SOCKS proxy for M3U downloads (e.g. "http://127.0.0.1:10809").
+   Pass NULL or "" to disable. Must be called before iptv_add_playlist(). */
+void iptv_set_proxy(const char *proxy);
+
 /* Load playlists + channel caches from disk. */
 void iptv_load(void);
 

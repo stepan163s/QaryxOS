@@ -24,6 +24,7 @@ static double g_cached_dur    = 0.0;
 static int    g_cached_vol    = 80;
 static int    g_cached_paused = 0;
 static char   g_cached_url[512] = "";
+static char   g_http_proxy[256] = "";
 
 static void on_mpv_render_update(void *ctx) {
     (void)ctx;
@@ -34,6 +35,11 @@ static void on_mpv_render_update(void *ctx) {
         pthread_cond_signal(g_render_cond);
         pthread_mutex_unlock(g_render_mu);
     }
+}
+
+void mpv_core_set_http_proxy(const char *proxy) {
+    if (proxy) strncpy(g_http_proxy, proxy, sizeof(g_http_proxy)-1);
+    else        g_http_proxy[0] = '\0';
 }
 
 void mpv_core_set_render_cond(pthread_mutex_t *mu, pthread_cond_t *cond) {
@@ -243,6 +249,12 @@ void mpv_core_load(const char *url, const char *profile) {
             mpv_set_property_string(g_mpv, "demuxer-max-bytes","15MiB");
         }
     }
+
+    /* Apply HTTP proxy if configured (useful for geo-blocked IPTV streams) */
+    if (g_http_proxy[0])
+        mpv_set_property_string(g_mpv, "http-proxy", g_http_proxy);
+    else
+        mpv_set_property_string(g_mpv, "http-proxy", "");
 
     /* Cache URL immediately so push_status() can return it without blocking */
     strncpy(g_cached_url, url, sizeof(g_cached_url) - 1);

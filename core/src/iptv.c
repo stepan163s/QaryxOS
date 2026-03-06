@@ -7,6 +7,7 @@
 #include <sys/stat.h>
 #include <time.h>
 #include <errno.h>
+#include <pthread.h>
 
 /* ── In-memory state ──────────────────────────────────────────────────────── */
 
@@ -15,6 +16,28 @@ static int          g_pl_count = 0;
 
 static IptvChannel  g_channels[IPTV_MAX_CHANNELS];
 static int          g_ch_count = 0;
+
+/* Mutex protecting g_playlists, g_channels, g_pl_count, g_ch_count.
+ * Recursive so iptv_add_playlist() can call iptv_refresh_playlist() while
+ * already holding the lock. */
+static pthread_mutex_t g_mu;
+static pthread_once_t  g_mu_once = PTHREAD_ONCE_INIT;
+static void mu_init(void) {
+    pthread_mutexattr_t attr;
+    pthread_mutexattr_init(&attr);
+    pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
+    pthread_mutex_init(&g_mu, &attr);
+    pthread_mutexattr_destroy(&attr);
+}
+#define IPTV_LOCK()   do { pthread_once(&g_mu_once, mu_init); pthread_mutex_lock(&g_mu); } while(0)
+#define IPTV_UNLOCK() pthread_mutex_unlock(&g_mu)
+
+static char g_proxy[256] = "";
+
+void iptv_set_proxy(const char *proxy) {
+    if (proxy) strncpy(g_proxy, proxy, sizeof(g_proxy)-1);
+    else        g_proxy[0] = '\0';
+}
 
 /* ── M3U parser ───────────────────────────────────────────────────────────── */
 
@@ -221,22 +244,26 @@ void iptv_load(void) {
 }
 
 int iptv_add_playlist(const char *url, const char *name) {
-    if (g_pl_count >= IPTV_MAX_PLAYLISTS) return -1;
+    char new_id[32] = "";
+
+    /* Add playlist entry under lock, then release before the blocking download */
+    IPTV_LOCK();
+    if (g_pl_count >= IPTV_MAX_PLAYLISTS) { IPTV_UNLOCK(); return -1; }
 
     IptvPlaylist *pl = &g_playlists[g_pl_count];
-    /* Generate id from name + timestamp */
     unsigned h = 5381;
     for (const char *s = name; *s; s++) h = ((h<<5)+h)^(unsigned char)*s;
     snprintf(pl->id, sizeof(pl->id), "pl_%08x_%lx", h, (unsigned long)time(NULL));
+    strncpy(new_id, pl->id, sizeof(new_id)-1);
     strncpy(pl->name, name, sizeof(pl->name)-1);
     strncpy(pl->url,  url,  sizeof(pl->url)-1);
     pl->updated_at    = 0;
     pl->channel_count = 0;
     g_pl_count++;
+    IPTV_UNLOCK();
 
-    int count = iptv_refresh_playlist(pl->id);
-    iptv_save_playlists();
-    return count;
+    /* iptv_refresh_playlist manages its own locking (releases during download) */
+    return iptv_refresh_playlist(new_id);
 }
 
 int iptv_remove_playlist(const char *id) {
@@ -260,20 +287,34 @@ int iptv_remove_playlist(const char *id) {
 }
 
 int iptv_refresh_playlist(const char *id) {
-    IptvPlaylist *pl = NULL;
-    for (int i = 0; i < g_pl_count; i++)
-        if (!strcmp(g_playlists[i].id, id)) { pl = &g_playlists[i]; break; }
-    if (!pl) return -1;
+    /* Copy URL and proxy under lock, then release before blocking download */
+    IPTV_LOCK();
+    char url[512]  = "";
+    char proxy[256] = "";
+    int found = 0;
+    for (int i = 0; i < g_pl_count; i++) {
+        if (!strcmp(g_playlists[i].id, id)) {
+            strncpy(url, g_playlists[i].url, sizeof(url)-1);
+            strncpy(proxy, g_proxy, sizeof(proxy)-1);
+            found = 1;
+            break;
+        }
+    }
+    IPTV_UNLOCK();
+    if (!found) return -1;
 
-    char *content = http_dl_string(pl->url);
+    char *content = http_dl_string(url, proxy[0] ? proxy : NULL);
     if (!content) return -1;
 
     /* Allocate temp channel buffer */
     IptvChannel *tmp = malloc(sizeof(IptvChannel) * IPTV_MAX_CHANNELS);
     if (!tmp) { free(content); return -1; }
 
-    int count = parse_m3u(content, pl->id, tmp, IPTV_MAX_CHANNELS);
+    int count = parse_m3u(content, id, tmp, IPTV_MAX_CHANNELS);
     free(content);
+
+    /* Re-acquire lock to modify shared state */
+    IPTV_LOCK();
 
     /* Remove old channels for this playlist */
     int w = 0;
@@ -289,10 +330,17 @@ int iptv_refresh_playlist(const char *id) {
     g_ch_count += add;
     free(tmp);
 
-    pl->channel_count = count;
-    pl->updated_at    = time(NULL);
+    /* Update playlist metadata */
+    for (int i = 0; i < g_pl_count; i++) {
+        if (!strcmp(g_playlists[i].id, id)) {
+            g_playlists[i].channel_count = count;
+            g_playlists[i].updated_at    = time(NULL);
+            break;
+        }
+    }
     save_channel_cache(id, g_channels + g_ch_count - add, add);
     iptv_save_playlists();
+    IPTV_UNLOCK();
     return count;
 }
 
@@ -340,12 +388,14 @@ IptvPlaylist *iptv_get_playlists(int *n) { *n = g_pl_count; return g_playlists; 
 
 IptvChannel *iptv_get_channels(const char *pl_id, const char *group, int *n) {
     static IptvChannel result[IPTV_MAX_CHANNELS];
+    IPTV_LOCK();
     int count = 0;
     for (int i = 0; i < g_ch_count && count < IPTV_MAX_CHANNELS; i++) {
         if (pl_id && strcmp(g_channels[i].playlist_id, pl_id)) continue;
         if (group  && strcmp(g_channels[i].group, group))       continue;
         result[count++] = g_channels[i];
     }
+    IPTV_UNLOCK();
     *n = count;
     return result;
 }
@@ -359,6 +409,7 @@ IptvChannel *iptv_get_channel(const char *id) {
 const char **iptv_get_groups(int *n) {
     static const char *groups[1024];
     static char        group_bufs[1024][64];
+    IPTV_LOCK();
     int count = 0;
     for (int i = 0; i < g_ch_count; i++) {
         if (!g_channels[i].group[0]) continue;
@@ -371,6 +422,7 @@ const char **iptv_get_groups(int *n) {
             count++;
         }
     }
+    IPTV_UNLOCK();
     *n = count;
     return groups;
 }

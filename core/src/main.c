@@ -85,6 +85,53 @@ static void ws_play_cb(const char *stream_url, void *userdata) {
     history_record(orig_url, orig_url, "youtube", "", "", 0);
 }
 
+/* ── IPTV playlist thread helpers ──────────────────────────────────────────── */
+
+/* Broadcast current playlists list to all WS clients. */
+static void broadcast_playlists(void) {
+    int n; IptvPlaylist *pl = iptv_get_playlists(&n);
+    cJSON *resp = cJSON_CreateObject();
+    cJSON_AddStringToObject(resp, "type", "playlists");
+    cJSON *arr = cJSON_CreateArray();
+    for (int i = 0; i < n; i++) {
+        cJSON *o = cJSON_CreateObject();
+        cJSON_AddStringToObject(o, "id",            pl[i].id);
+        cJSON_AddStringToObject(o, "name",          pl[i].name);
+        cJSON_AddStringToObject(o, "url",           pl[i].url);
+        cJSON_AddNumberToObject(o, "channel_count", pl[i].channel_count);
+        cJSON_AddItemToArray(arr, o);
+    }
+    cJSON_AddItemToObject(resp, "playlists", arr);
+    char *s = cJSON_Print(resp); cJSON_Delete(resp);
+    ws_broadcast(s); free(s);
+}
+
+typedef struct { char url[512]; char name[64]; } PlaylistAddArg;
+typedef struct { char id[32]; }                   PlaylistRefreshArg;
+
+static void *playlist_add_thread(void *arg) {
+    PlaylistAddArg *a = arg;
+    int count = iptv_add_playlist(a->url, a->name);
+    free(a);
+    fprintf(stderr, "iptv: playlist_add done, %d channels\n", count);
+    broadcast_playlists();
+    /* Refresh IPTV screen if currently visible */
+    if (g_screen == SCREEN_IPTV)
+        ui_iptv_enter();
+    return NULL;
+}
+
+static void *playlist_refresh_thread(void *arg) {
+    PlaylistRefreshArg *a = arg;
+    int count = iptv_refresh_playlist(a->id);
+    free(a);
+    fprintf(stderr, "iptv: playlist_refresh done, %d channels\n", count);
+    broadcast_playlists();
+    if (g_screen == SCREEN_IPTV)
+        ui_iptv_enter();
+    return NULL;
+}
+
 /* ── WebSocket message handler ─────────────────────────────────────────────── */
 
 static void ws_dispatch_cmd(const char *json) {
@@ -157,26 +204,26 @@ static void ws_dispatch_cmd(const char *json) {
     } else if (!strcmp(cmd, "history_clear")) {
         history_clear();
     } else if (!strcmp(cmd, "playlists_get")) {
-        int n; IptvPlaylist *pl = iptv_get_playlists(&n);
-        cJSON *resp = cJSON_CreateObject();
-        cJSON_AddStringToObject(resp, "type", "playlists");
-        cJSON *arr = cJSON_CreateArray();
-        for (int i = 0; i < n; i++) {
-            cJSON *o = cJSON_CreateObject();
-            cJSON_AddStringToObject(o, "id",            pl[i].id);
-            cJSON_AddStringToObject(o, "name",          pl[i].name);
-            cJSON_AddStringToObject(o, "url",           pl[i].url);
-            cJSON_AddNumberToObject(o, "channel_count", pl[i].channel_count);
-            cJSON_AddItemToArray(arr, o);
-        }
-        cJSON_AddItemToObject(resp, "playlists", arr);
-        char *s = cJSON_Print(resp); cJSON_Delete(resp);
-        ws_broadcast(s); free(s);
+        broadcast_playlists();
 
     } else if (!strcmp(cmd, "playlist_add")) {
         const char *url  = cJSON_GetString(j, "url",  "");
         const char *name = cJSON_GetString(j, "name", "Playlist");
-        iptv_add_playlist(url, name);  /* blocking — TODO: thread */
+        PlaylistAddArg *a = malloc(sizeof(*a));
+        strncpy(a->url,  url,  sizeof(a->url)-1);
+        strncpy(a->name, name, sizeof(a->name)-1);
+        pthread_t tid; pthread_create(&tid, NULL, playlist_add_thread, a);
+        pthread_detach(tid);
+
+    } else if (!strcmp(cmd, "playlist_refresh")) {
+        const char *id = cJSON_GetString(j, "id", "");
+        if (id[0]) {
+            PlaylistRefreshArg *a = malloc(sizeof(*a));
+            strncpy(a->id, id, sizeof(a->id)-1);
+            pthread_t tid; pthread_create(&tid, NULL, playlist_refresh_thread, a);
+            pthread_detach(tid);
+        }
+
     } else if (!strcmp(cmd, "playlist_del")) {
         iptv_remove_playlist(cJSON_GetString(j, "id", ""));
 
@@ -208,23 +255,9 @@ static void ws_dispatch_cmd(const char *json) {
         cJSON *channels = cJSON_GetObjectItem(j, "channels");
         if (channels && channels->type == CJSON_ARRAY) {
             int count = iptv_import_channels(name, channels);
-            /* Broadcast updated playlist list */
-            int pn; IptvPlaylist *pl = iptv_get_playlists(&pn);
-            cJSON *resp = cJSON_CreateObject();
-            cJSON_AddStringToObject(resp, "type", "playlists");
-            cJSON *parr = cJSON_CreateArray();
-            for (int i = 0; i < pn; i++) {
-                cJSON *o = cJSON_CreateObject();
-                cJSON_AddStringToObject(o, "id",            pl[i].id);
-                cJSON_AddStringToObject(o, "name",          pl[i].name);
-                cJSON_AddStringToObject(o, "url",           pl[i].url);
-                cJSON_AddNumberToObject(o, "channel_count", pl[i].channel_count);
-                cJSON_AddItemToArray(parr, o);
-            }
-            cJSON_AddItemToObject(resp, "playlists", parr);
-            char *s = cJSON_Print(resp); cJSON_Delete(resp);
-            ws_broadcast(s); free(s);
             fprintf(stderr, "iptv: imported %d channels as '%s'\n", count, name);
+            broadcast_playlists();
+            if (g_screen == SCREEN_IPTV) ui_iptv_enter();
         }
 
     } else if (!strcmp(cmd, "service_get")) {
@@ -435,6 +468,8 @@ int main(void) {
     config_load(&g_cfg);
     ytdlp_set_proxy(g_cfg.ytdlp_proxy);
     ytdlp_set_default_quality(g_cfg.ytdlp_quality[0] ? g_cfg.ytdlp_quality : "720");
+    iptv_set_proxy(g_cfg.iptv_proxy);
+    mpv_core_set_http_proxy(g_cfg.iptv_proxy);
 
     /* If proxy configured, set env vars so libcurl (used by libmpv) picks it up */
     if (g_cfg.ytdlp_proxy[0]) {

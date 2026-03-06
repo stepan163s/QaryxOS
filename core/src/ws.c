@@ -11,6 +11,7 @@
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
+#include <pthread.h>
 
 /* ── WebSocket magic ──────────────────────────────────────────────────────── */
 #define WS_MAGIC "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
@@ -31,6 +32,7 @@ typedef struct {
 static int        g_listen_fd = -1;
 static WsClient   g_clients[WS_MAX_CLIENTS];
 static WsMsgHandler g_handler = NULL;
+static pthread_mutex_t g_broadcast_mu = PTHREAD_MUTEX_INITIALIZER;
 
 /* ── Helpers ──────────────────────────────────────────────────────────────── */
 
@@ -124,10 +126,12 @@ void ws_send(int fd, const char *json) {
 }
 
 void ws_broadcast(const char *json) {
+    pthread_mutex_lock(&g_broadcast_mu);
     for (int i = 0; i < WS_MAX_CLIENTS; i++) {
         if (g_clients[i].fd >= 0 && g_clients[i].state == CS_OPEN)
             ws_send(g_clients[i].fd, json);
     }
+    pthread_mutex_unlock(&g_broadcast_mu);
 }
 
 /* ── WebSocket frame receive ─────────────────────────────────────────────── */
