@@ -395,14 +395,16 @@ IptvPlaylist *iptv_get_playlists(int *n) {
     return g_playlists;
 }
 
-IptvChannel *iptv_get_channels(const char *pl_id, const char *group, int *n) {
-    static IptvChannel result[IPTV_MAX_CHANNELS];
+const IptvChannel **iptv_get_channels(const char *pl_id, const char *group, int *n) {
+    /* Return a pointer array instead of copying ~5 MB of structs.
+     * 5000 × 8 bytes (40 KB) vs 5000 × 1056 bytes (5 MB) in BSS. */
+    static const IptvChannel *result[IPTV_MAX_CHANNELS];
     IPTV_LOCK();
     int count = 0;
     for (int i = 0; i < g_ch_count && count < IPTV_MAX_CHANNELS; i++) {
         if (pl_id && strcmp(g_channels[i].playlist_id, pl_id)) continue;
         if (group  && strcmp(g_channels[i].group, group))       continue;
-        result[count++] = g_channels[i];
+        result[count++] = &g_channels[i];
     }
     IPTV_UNLOCK();
     *n = count;

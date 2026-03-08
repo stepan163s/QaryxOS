@@ -28,7 +28,7 @@ static int          g_ch_idx    = 0;
 static const char **g_groups    = NULL;
 static int          g_group_n   = 0;   /* count of real groups */
 
-static IptvChannel *g_channels  = NULL;
+static const IptvChannel **g_channels = NULL;
 static int          g_ch_n      = 0;
 
 /* URL + name of the channel currently being played — for the "> playing" indicator */
@@ -130,7 +130,7 @@ void ui_iptv_draw(void) {
             int sel     = (idx == g_ch_idx);
             int act     = sel && (g_pane == PANE_CHANNELS);
             int playing = g_playing_url[0] &&
-                          !strcmp(g_channels[idx].url, g_playing_url);
+                          !strcmp(g_channels[idx]->url, g_playing_url);
 
             /* Row background */
             if (act) {
@@ -153,7 +153,7 @@ void ui_iptv_draw(void) {
 
             /* Channel name */
             char name[54] = {0};
-            strncpy(name, g_channels[idx].name, 52);
+            strncpy(name, g_channels[idx]->name, 52);
             uint32_t col = act     ? COL_WHITE  :
                            sel     ? rgba(220, 225, 255, 255) :
                            playing ? rgba(110, 210, 110, 255) :
@@ -224,7 +224,7 @@ void ui_iptv_key(const char *key) {
 
     } else if (!strcmp(key, "ok")) {
         if (g_pane == PANE_CHANNELS && g_channels && g_ch_n > 0) {
-            IptvChannel *ch = &g_channels[g_ch_idx];
+            const IptvChannel *ch = g_channels[g_ch_idx];
             strncpy(g_playing_url,  ch->url,  sizeof(g_playing_url) - 1);
             strncpy(g_playing_name, ch->name, sizeof(g_playing_name) - 1);
             mpv_core_load(ch->url, "live");

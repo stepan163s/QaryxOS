@@ -49,7 +49,9 @@ int  iptv_import_channels(const char *name, void *channels_cjson_array);
 
 /* Queries */
 IptvPlaylist *iptv_get_playlists(int *count_out);
-IptvChannel  *iptv_get_channels(const char *playlist_id, const char *group,
-                                 int *count_out);
+/* Returns array of pointers into internal channel table — no copy.
+   Valid until the next iptv_refresh_playlist / iptv_remove_playlist call. */
+const IptvChannel **iptv_get_channels(const char *playlist_id, const char *group,
+                                      int *count_out);
 IptvChannel  *iptv_get_channel(const char *id);
 const char  **iptv_get_groups(int *count_out);

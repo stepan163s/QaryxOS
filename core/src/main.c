@@ -294,7 +294,7 @@ static void ws_dispatch_cmd(const char *json) {
     } else if (!strcmp(cmd, "iptv_channels_get")) {
         /* Return up to 500 channels for a playlist */
         const char *pl_id = cJSON_GetString(j, "playlist_id", "");
-        int n; IptvChannel *ch = iptv_get_channels(pl_id[0] ? pl_id : NULL, NULL, &n);
+        int n; const IptvChannel **ch = iptv_get_channels(pl_id[0] ? pl_id : NULL, NULL, &n);
         cJSON *resp = cJSON_CreateObject();
         cJSON_AddStringToObject(resp, "type", "iptv_channels");
         if (pl_id[0]) cJSON_AddStringToObject(resp, "playlist_id", pl_id);
@@ -302,10 +302,10 @@ static void ws_dispatch_cmd(const char *json) {
         int lim = n > 500 ? 500 : n;
         for (int i = 0; i < lim; i++) {
             cJSON *o = cJSON_CreateObject();
-            cJSON_AddStringToObject(o, "id",    ch[i].id);
-            cJSON_AddStringToObject(o, "name",  ch[i].name);
-            cJSON_AddStringToObject(o, "url",   ch[i].url);
-            cJSON_AddStringToObject(o, "group", ch[i].group);
+            cJSON_AddStringToObject(o, "id",    ch[i]->id);
+            cJSON_AddStringToObject(o, "name",  ch[i]->name);
+            cJSON_AddStringToObject(o, "url",   ch[i]->url);
+            cJSON_AddStringToObject(o, "group", ch[i]->group);
             cJSON_AddItemToArray(arr, o);
         }
         cJSON_AddItemToObject(resp, "channels", arr);
