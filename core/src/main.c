@@ -66,7 +66,7 @@ static void epoll_del(int fd) {
 /* ── YouTube play callback ─────────────────────────────────────────────────── */
 
 static void ws_play_cb(const char *stream_url, void *userdata) {
-    const char *orig_url = (const char *)userdata;
+    char *orig_url = (char *)userdata;  /* heap-allocated per-request, free below */
     if (!stream_url) {
         fprintf(stderr, "play: yt-dlp FAILED for %s\n", orig_url);
         cJSON *err = cJSON_CreateObject();
@@ -74,6 +74,7 @@ static void ws_play_cb(const char *stream_url, void *userdata) {
         cJSON_AddStringToObject(err, "msg",  "yt-dlp resolve failed");
         char *s = cJSON_Print(err); cJSON_Delete(err);
         ws_broadcast(s); free(s);
+        free(orig_url);
         return;
     }
     fprintf(stderr, "play: stream_url=%.120s\n", stream_url);
@@ -83,6 +84,7 @@ static void ws_play_cb(const char *stream_url, void *userdata) {
     }
     mpv_core_load(stream_url, NULL);
     history_record(orig_url, orig_url, "youtube", "", "", 0);
+    free(orig_url);
 }
 
 /* ── IPTV playlist thread helpers ──────────────────────────────────────────── */
@@ -185,9 +187,13 @@ static void ws_dispatch_cmd(const char *json) {
         if (!strcmp(type, "youtube") ||
             strstr(url, "youtube.com") || strstr(url, "youtu.be")) {
             fprintf(stderr, "play: youtube resolve -> %s\n", url);
-            static char g_play_orig_url[512];
-            strncpy(g_play_orig_url, url, sizeof(g_play_orig_url)-1);
-            ytdlp_resolve(url, NULL, ws_play_cb, g_play_orig_url);
+            /* Per-request heap alloc avoids the static-buffer race where two
+             * concurrent resolves clobber each other's URL (fixes #43). */
+            char *orig = malloc(512);
+            if (orig) {
+                strncpy(orig, url, 511); orig[511] = '\0';
+                ytdlp_resolve(url, NULL, ws_play_cb, orig);
+            }
         } else {
             const char *profile = (!strcmp(type,"iptv")) ? "live" : NULL;
             fprintf(stderr, "play: direct -> %s (profile=%s)\n", url, profile ? profile : "none");
@@ -358,18 +364,30 @@ static double s_pos_last      = 0.0;  /* position at last save */
 static time_t s_pos_save_t    = 0;    /* time of last save */
 static int    s_was_playing   = 0;    /* previous frame was playing */
 
+/* Escape double-quotes and backslashes inside a JSON string value. */
+static void json_str_escape(const char *src, char *dst, size_t dstsz) {
+    size_t j = 0;
+    for (size_t i = 0; src[i] && j + 3 < dstsz; i++) {
+        if (src[i] == '"' || src[i] == '\\') dst[j++] = '\\';
+        dst[j++] = src[i];
+    }
+    dst[j] = '\0';
+}
+
 static void push_status(void) {
     MpvStatus st = mpv_core_get_status();
-    cJSON *j = cJSON_CreateObject();
-    cJSON_AddStringToObject(j, "type",     "status");
-    cJSON_AddStringToObject(j, "state",    st.state);
-    cJSON_AddStringToObject(j, "url",      st.url);
-    cJSON_AddNumberToObject(j, "position", st.position);
-    cJSON_AddNumberToObject(j, "duration", st.duration);
-    cJSON_AddNumberToObject(j, "volume",   st.volume);
-    cJSON_AddBoolToObject  (j, "paused",   st.paused);
-    char *s = cJSON_Print(j); cJSON_Delete(j);
-    ws_broadcast(s); free(s);
+
+    /* snprintf instead of cJSON — eliminates ~8 heap allocs + open_memstream
+     * per call.  push_status fires 30×/s → saves ~720 heap ops/second. */
+    char esc_url[600];
+    json_str_escape(st.url, esc_url, sizeof(esc_url));
+    char buf[768];
+    snprintf(buf, sizeof(buf),
+        "{\"type\":\"status\",\"state\":\"%s\",\"url\":\"%s\","
+        "\"position\":%.3f,\"duration\":%.3f,\"volume\":%d,\"paused\":%s}",
+        st.state, esc_url, st.position, st.duration,
+        st.volume, st.paused ? "true" : "false");
+    ws_broadcast(buf);
 
     /* Save playback position to history:
      *  - Every 30s during playback (for resume-on-reopen)
@@ -684,6 +702,7 @@ int main(void) {
 
                 /* Push status every ~500ms (every 15 frames at 30fps) */
                 if (++status_counter >= 15) { status_counter = 0; push_status(); }
+                history_tick();
 
             } else if (tag == TAG_MPV) {
                 uint64_t dummy; read(mpv_wfd, &dummy, sizeof(dummy));

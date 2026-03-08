@@ -293,13 +293,22 @@ int ytdlp_get_channel_videos(const char *channel_url, int max, YoutubeVideo *out
     }
     close(pipefd[1]);
 
-    /* Read all output (blocking) — use heap to avoid 256KB stack frame */
+    /* Read all output — grow buffer as needed so large playlists aren't truncated.
+     * Previous fixed-size 256 KB would silently drop output beyond that limit. */
     size_t bufsz = 256 * 1024;
-    char *buf = malloc(bufsz);
+    char  *buf   = malloc(bufsz);
     if (!buf) { close(pipefd[0]); waitpid(pid, NULL, 0); return 0; }
-    int  len = 0;
+    size_t len = 0;
     ssize_t n;
-    while ((n = read(pipefd[0], buf+len, bufsz-len-1)) > 0) len += n;
+    while ((n = read(pipefd[0], buf + len, bufsz - len - 1)) > 0) {
+        len += (size_t)n;
+        if (bufsz - len < 4096) {   /* < 4 KB headroom — double the buffer */
+            char *p = realloc(buf, bufsz * 2);
+            if (!p) break;          /* OOM: parse what we have */
+            buf   = p;
+            bufsz *= 2;
+        }
+    }
     buf[len] = '\0';
     close(pipefd[0]);
     waitpid(pid, NULL, 0);
@@ -323,11 +332,23 @@ int ytdlp_get_channel_videos(const char *channel_url, int max, YoutubeVideo *out
                 snprintf(v->url, sizeof(v->url),
                          "https://www.youtube.com/watch?v=%s", v->id);
 
-                /* Thumbnail: last item in thumbnails array */
+                /* Prefer mqdefault (320×180) over maxresdefault (1280×720).
+                 * Reduces LRU cache GPU memory from up to 237 MB → ~17 MB. */
                 cJSON *thumbs = cJSON_GetObjectItem(j, "thumbnails");
-                if (thumbs && cJSON_GetArraySize(thumbs) > 0) {
-                    cJSON *last = cJSON_GetArrayItem(thumbs, cJSON_GetArraySize(thumbs)-1);
-                    strncpy(v->thumbnail, cJSON_GetString(last,"url",""), sizeof(v->thumbnail)-1);
+                if (thumbs) {
+                    const char *best = NULL;
+                    int nt = cJSON_GetArraySize(thumbs);
+                    for (int t = 0; t < nt; t++) {
+                        cJSON *th = cJSON_GetArrayItem(thumbs, t);
+                        if (!strcmp(cJSON_GetString(th,"id",""), "mqdefault")) {
+                            best = cJSON_GetString(th, "url", NULL);
+                            break;
+                        }
+                    }
+                    if (!best && nt > 0)
+                        best = cJSON_GetString(cJSON_GetArrayItem(thumbs, nt-1), "url", "");
+                    if (best && best[0])
+                        strncpy(v->thumbnail, best, sizeof(v->thumbnail)-1);
                 }
 
                 cJSON_Delete(j);

@@ -34,3 +34,6 @@ HistoryEntry *history_get_all(int *count_out);
 HistoryEntry *history_get_last(void);
 
 void history_clear(void);
+
+/* Call from the main loop timer (~30×/s). Flushes dirty state after 60 s. */
+void history_tick(void);
