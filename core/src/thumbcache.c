@@ -45,6 +45,58 @@ static ThumbEntry  g_entries[THUMB_MAX];
 static int         g_n_entries = 0;
 static pthread_mutex_t g_mu = PTHREAD_MUTEX_INITIALIZER;
 
+/* ── URL → entry-index hash table (open addressing, FNV-1a) ─────────────── */
+/* Load factor ≤ 0.5 (64/128): expected 1.5 probes vs 32 for linear scan.   */
+#define THUMB_HT_SZ  128          /* power of 2, > THUMB_MAX */
+#define THUMB_HT_MASK (THUMB_HT_SZ - 1)
+#define HT_EMPTY     (-1)
+#define HT_TOMB      (-2)         /* tombstone for deleted slots */
+static int g_ht[THUMB_HT_SZ];    /* index into g_entries; HT_EMPTY / HT_TOMB */
+
+static uint32_t url_fnv1a(const char *s) {
+    uint32_t h = 2166136261u;
+    while (*s) { h ^= (uint8_t)*s++; h *= 16777619u; }
+    return h;
+}
+
+/* Must hold g_mu. Returns entry index or -1 if not found. */
+static int ht_find(const char *url) {
+    uint32_t h = url_fnv1a(url) & THUMB_HT_MASK;
+    for (int i = 0; i < THUMB_HT_SZ; i++) {
+        int slot = (h + i) & THUMB_HT_MASK;
+        if (g_ht[slot] == HT_EMPTY) return -1;
+        if (g_ht[slot] >= 0 && !strcmp(g_entries[g_ht[slot]].url, url))
+            return g_ht[slot];
+        /* HT_TOMB: keep probing */
+    }
+    return -1;
+}
+
+/* Must hold g_mu. Insert entry_idx (url already set). */
+static void ht_insert(int entry_idx) {
+    uint32_t h = url_fnv1a(g_entries[entry_idx].url) & THUMB_HT_MASK;
+    for (int i = 0; i < THUMB_HT_SZ; i++) {
+        int slot = (h + i) & THUMB_HT_MASK;
+        if (g_ht[slot] == HT_EMPTY || g_ht[slot] == HT_TOMB) {
+            g_ht[slot] = entry_idx;
+            return;
+        }
+    }
+}
+
+/* Must hold g_mu. Mark the HT slot for url as tombstone. */
+static void ht_remove(const char *url) {
+    uint32_t h = url_fnv1a(url) & THUMB_HT_MASK;
+    for (int i = 0; i < THUMB_HT_SZ; i++) {
+        int slot = (h + i) & THUMB_HT_MASK;
+        if (g_ht[slot] == HT_EMPTY) return;
+        if (g_ht[slot] >= 0 && !strcmp(g_entries[g_ht[slot]].url, url)) {
+            g_ht[slot] = HT_TOMB;
+            return;
+        }
+    }
+}
+
 static UploadJob       g_queue[UPLOAD_QUEUE_SZ];
 static int             g_q_head = 0, g_q_tail = 0;
 static pthread_mutex_t g_q_mu = PTHREAD_MUTEX_INITIALIZER;
@@ -66,13 +118,11 @@ typedef struct { char url[512]; char path[512]; } ThreadArg;
 
 static void entry_set_failed(const char *url) {
     pthread_mutex_lock(&g_mu);
-    for (int i = 0; i < g_n_entries; i++) {
-        if (!strcmp(g_entries[i].url, url)) {
-            g_entries[i].loading  = 0;
-            g_entries[i].failed   = 1;
-            g_entries[i].failed_at = time(NULL);
-            break;
-        }
+    int idx = ht_find(url);
+    if (idx >= 0) {
+        g_entries[idx].loading  = 0;
+        g_entries[idx].failed   = 1;
+        g_entries[idx].failed_at = time(NULL);
     }
     pthread_mutex_unlock(&g_mu);
 }
@@ -130,6 +180,7 @@ void thumbcache_init(const char *data_dir) {
     snprintf(g_cache_dir, sizeof(g_cache_dir), "%s/thumbcache", data_dir);
     mkdir(g_cache_dir, 0755); /* ignore error if already exists */
     memset(g_entries, 0, sizeof(g_entries));
+    for (int i = 0; i < THUMB_HT_SZ; i++) g_ht[i] = HT_EMPTY;
 }
 
 static void spawn_download(const char *url) {
@@ -153,32 +204,30 @@ GLuint thumbcache_get(const char *url) {
     pthread_mutex_lock(&g_mu);
     time_t now = time(NULL);
 
-    /* Search existing entry */
-    for (int i = 0; i < g_n_entries; i++) {
-        if (!strcmp(g_entries[i].url, url)) {
-            g_entries[i].last_used = now;
+    /* O(1) hash table lookup — replaces O(n) linear scan */
+    int idx = ht_find(url);
+    if (idx >= 0) {
+        g_entries[idx].last_used = now;
 
-            if (g_entries[i].tex) {          /* ready */
-                GLuint t = g_entries[i].tex;
-                pthread_mutex_unlock(&g_mu);
-                return t;
-            }
-            if (g_entries[i].loading) {      /* in progress */
-                pthread_mutex_unlock(&g_mu);
-                return 0;
-            }
-            /* Failed: retry after RETRY_DELAY */
-            if (g_entries[i].failed &&
-                (now - g_entries[i].failed_at) >= RETRY_DELAY) {
-                g_entries[i].loading = 1;
-                g_entries[i].failed  = 0;
-                pthread_mutex_unlock(&g_mu);
-                spawn_download(url);
-            } else {
-                pthread_mutex_unlock(&g_mu);
-            }
+        if (g_entries[idx].tex) {
+            GLuint t = g_entries[idx].tex;
+            pthread_mutex_unlock(&g_mu);
+            return t;
+        }
+        if (g_entries[idx].loading) {
+            pthread_mutex_unlock(&g_mu);
             return 0;
         }
+        if (g_entries[idx].failed &&
+            (now - g_entries[idx].failed_at) >= RETRY_DELAY) {
+            g_entries[idx].loading = 1;
+            g_entries[idx].failed  = 0;
+            pthread_mutex_unlock(&g_mu);
+            spawn_download(url);
+        } else {
+            pthread_mutex_unlock(&g_mu);
+        }
+        return 0;
     }
 
     /* New entry: evict LRU if full */
@@ -192,6 +241,8 @@ GLuint thumbcache_get(const char *url) {
                 slot = i;
         if (g_entries[slot].tex)
             glDeleteTextures(1, &g_entries[slot].tex);
+        /* Remove evicted URL from hash table before overwriting the entry */
+        ht_remove(g_entries[slot].url);
     }
 
     ThumbEntry *e = &g_entries[slot];
@@ -199,6 +250,7 @@ GLuint thumbcache_get(const char *url) {
     strncpy(e->url, url, sizeof(e->url) - 1);
     e->loading   = 1;
     e->last_used = now;
+    ht_insert(slot);   /* register new URL in hash table */
 
     pthread_mutex_unlock(&g_mu);
     spawn_download(url);
@@ -231,14 +283,12 @@ int thumbcache_tick(void) {
         stbi_image_free(j->pixels);
         j->pixels = NULL;
 
-        /* Store tex id in entry */
+        /* Store tex id in entry — O(1) via hash table */
         pthread_mutex_lock(&g_mu);
-        for (int i = 0; i < g_n_entries; i++) {
-            if (!strcmp(g_entries[i].url, j->url)) {
-                g_entries[i].tex     = tex;
-                g_entries[i].loading = 0;
-                break;
-            }
+        int tidx = ht_find(j->url);
+        if (tidx >= 0) {
+            g_entries[tidx].tex     = tex;
+            g_entries[tidx].loading = 0;
         }
         pthread_mutex_unlock(&g_mu);
 
