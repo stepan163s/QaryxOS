@@ -51,6 +51,10 @@ static pthread_mutex_t g_render_mu   = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t  g_render_cond = PTHREAD_COND_INITIALIZER;
 static int g_render_signal = 0;  /* 1 = render thread should render a frame */
 static int g_render_ready  = 0;  /* 1 = render thread has initialised GL/mpv */
+/* Dirty flag: render thread skips the UI draw+swap when 0.
+ * Set from main thread on input/WS; cleared by render thread after drawing.
+ * volatile is sufficient — ARM64 aligned int load/store are atomic. */
+static volatile int g_ui_dirty = 1;   /* start dirty so first frame renders */
 
 /* ── epoll helpers ─────────────────────────────────────────────────────────── */
 
@@ -121,6 +125,7 @@ static void *playlist_add_thread(void *arg) {
     /* Refresh IPTV screen if currently visible */
     if (g_screen == SCREEN_IPTV)
         ui_iptv_enter();
+    g_ui_dirty = 1;
     return NULL;
 }
 
@@ -132,6 +137,7 @@ static void *playlist_refresh_thread(void *arg) {
     broadcast_playlists();
     if (g_screen == SCREEN_IPTV)
         ui_iptv_enter();
+    g_ui_dirty = 1;
     return NULL;
 }
 
@@ -148,6 +154,7 @@ static void *youtube_refresh_thread(void *arg) {
 
     if (count > 0) {
         ui_youtube_set_videos(vids, count);
+        g_ui_dirty = 1;
 
         /* Broadcast video list to WS clients */
         cJSON *resp = cJSON_CreateObject();
@@ -174,6 +181,7 @@ static void *youtube_refresh_thread(void *arg) {
 /* ── WebSocket message handler ─────────────────────────────────────────────── */
 
 static void ws_dispatch_cmd(const char *json) {
+    g_ui_dirty = 1;   /* any WS command may change screen state */
     fprintf(stderr, "ws recv: %.200s\n", json);
     cJSON *j = cJSON_Parse(json);
     if (!j) { fprintf(stderr, "ws recv: JSON parse failed\n"); return; }
@@ -444,20 +452,25 @@ static void render_frame(void) {
         /* wants==0 && g_video_frame_ready: last frame still in the front
            buffer (DRM keeps it on screen) — skip swap to avoid stale content */
     } else {
-        /* Idle/stopped: draw the UI.
-           render_begin_frame() also resets GL state polluted by mpv. */
+        /* Idle/stopped: draw the UI only when dirty (key press, navigation,
+           new thumbnail) to avoid useless clear+draw+vsync every 33 ms. */
         g_video_frame_ready = 0;
-        thumbcache_tick(); /* upload any decoded thumbnails to GL */
-        render_begin_frame();
+        if (thumbcache_tick() > 0) g_ui_dirty = 1;
 
-        switch (g_screen) {
-            case SCREEN_HOME:     ui_home_draw();     break;
-            case SCREEN_YOUTUBE:  ui_youtube_draw();  break;
-            case SCREEN_IPTV:     ui_iptv_draw();     break;
-            case SCREEN_SETTINGS: ui_settings_draw(); break;
-            default: break;
+        if (g_ui_dirty) {
+            /* render_begin_frame() also resets GL state polluted by mpv. */
+            render_begin_frame();
+
+            switch (g_screen) {
+                case SCREEN_HOME:     ui_home_draw();     break;
+                case SCREEN_YOUTUBE:  ui_youtube_draw();  break;
+                case SCREEN_IPTV:     ui_iptv_draw();     break;
+                case SCREEN_SETTINGS: ui_settings_draw(); break;
+                default: break;
+            }
+            g_ui_dirty  = 0;
+            did_render  = 1;
         }
-        did_render = 1;
     }
 
     /* Only swap when we actually rendered something to the back buffer.
@@ -683,6 +696,7 @@ int main(void) {
                         default: break;
                     }
                 }
+                if (nk > 0) g_ui_dirty = 1;
 
             } else if (tag == TAG_WS_LISTEN) {
                 int cfd = ws_accept();

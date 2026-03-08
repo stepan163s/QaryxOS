@@ -415,23 +415,39 @@ IptvChannel *iptv_get_channel(const char *id) {
     return NULL;
 }
 
+static int cmp_str64(const void *a, const void *b) {
+    return strcmp((const char *)a, (const char *)b);
+}
+
 const char **iptv_get_groups(int *n) {
     static const char *groups[1024];
     static char        group_bufs[1024][64];
+    /* BSS: 320 KB flat array used as sort scratch — never on the stack */
+    static char        tmp[IPTV_MAX_CHANNELS][64];
+
     IPTV_LOCK();
-    int count = 0;
+    int raw = 0;
     for (int i = 0; i < g_ch_count; i++) {
-        if (!g_channels[i].group[0]) continue;
-        int found = 0;
-        for (int j = 0; j < count; j++)
-            if (!strcmp(groups[j], g_channels[i].group)) { found=1; break; }
-        if (!found && count < 1024) {
-            strncpy(group_bufs[count], g_channels[i].group, 63);
+        if (g_channels[i].group[0] && raw < IPTV_MAX_CHANNELS) {
+            strncpy(tmp[raw], g_channels[i].group, 63);
+            tmp[raw][63] = '\0';
+            raw++;
+        }
+    }
+    IPTV_UNLOCK();
+
+    /* O(n log n) sort + O(n) dedup — replaces O(n*m) inner scan */
+    qsort(tmp, raw, 64, cmp_str64);
+
+    int count = 0;
+    for (int i = 0; i < raw && count < 1024; i++) {
+        if (count == 0 || strcmp(tmp[i], group_bufs[count-1])) {
+            strncpy(group_bufs[count], tmp[i], 63);
+            group_bufs[count][63] = '\0';
             groups[count] = group_bufs[count];
             count++;
         }
     }
-    IPTV_UNLOCK();
     *n = count;
     return groups;
 }

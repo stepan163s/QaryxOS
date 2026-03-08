@@ -11,5 +11,5 @@ void thumbcache_init(const char *data_dir);
 GLuint thumbcache_get(const char *url);
 
 /* Upload any decoded thumbnails to GL (MUST be called from the main/GL thread).
-   Call once per frame before drawing. */
-void thumbcache_tick(void);
+   Call once per frame before drawing. Returns count of textures uploaded. */
+int thumbcache_tick(void);

@@ -205,10 +205,13 @@ GLuint thumbcache_get(const char *url) {
     return 0;
 }
 
-void thumbcache_tick(void) {
-    /* Upload all pending decoded images to GL (must run on GL thread) */
+int thumbcache_tick(void) {
+    /* Upload all pending decoded images to GL (must run on GL thread).
+     * Returns number of textures uploaded (> 0 means UI needs a redraw). */
+    int uploaded = 0;
     pthread_mutex_lock(&g_q_mu);
     while (g_q_head != g_q_tail) {
+        uploaded++;
         UploadJob *j = &g_queue[g_q_head];
         g_q_head = (g_q_head + 1) % UPLOAD_QUEUE_SZ;
         pthread_mutex_unlock(&g_q_mu);
@@ -242,4 +245,5 @@ void thumbcache_tick(void) {
         pthread_mutex_lock(&g_q_mu);
     }
     pthread_mutex_unlock(&g_q_mu);
+    return uploaded;
 }
