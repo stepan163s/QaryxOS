@@ -469,6 +469,7 @@ static void render_frame(void) {
                 case SCREEN_SETTINGS: ui_settings_draw(); break;
                 default: break;
             }
+            render_end_frame();   /* flush any pending batch quads */
             g_ui_dirty  = 0;
             did_render  = 1;
         }
