@@ -28,6 +28,7 @@
 #include "history.h"
 #include "thumbcache.h"
 #include "config.h"
+#include "http_dl.h"
 #include "../third_party/cjson.h"
 
 #include "services.h"
@@ -576,6 +577,9 @@ int main(void) {
     signal(SIGINT,  on_signal);
     signal(SIGTERM, on_signal);
     signal(SIGPIPE, SIG_IGN);
+
+    /* libcurl global init + shared TLS/connection cache */
+    http_dl_init();
 
     /* Config */
     config_load(&g_cfg);

@@ -1,6 +1,10 @@
 #pragma once
 #include <stddef.h>
 
+/* Call once at startup (before any other http_dl_* call).
+   Initialises libcurl global state and the shared TLS/connection cache. */
+void http_dl_init(void);
+
 /* Download URL content into a heap-allocated string (caller must free()).
    proxy: optional HTTP/SOCKS proxy URL (e.g. "http://127.0.0.1:10809"), or NULL.
    Returns NULL on error. Uses libcurl synchronously. */
